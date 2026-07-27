@@ -10,7 +10,12 @@ export default function Home() {
         <GrandFoodMark className="h-14 w-14" />
         <h1 className="text-3xl font-semibold text-foreground">GrandFood</h1>
         <p className="text-muted-foreground">간단한 Next.js 페이지입니다.</p>
-        <Button size="lg" className="mt-2" render={<Link href="/admin/login" />}>
+        <Button
+          size="lg"
+          className="mt-2"
+          nativeButton={false}
+          render={<Link href="/admin/login" />}
+        >
           기관 담당자 로그인
         </Button>
       </main>

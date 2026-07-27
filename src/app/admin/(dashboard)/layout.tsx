@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/admin/app-sidebar";
+import { SessionTimer } from "@/components/admin/session-timer";
 import {
   SidebarInset,
   SidebarProvider,
@@ -23,7 +24,7 @@ export default function AdminDashboardLayout({
               강남구청 · 노인복지과
             </span>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span>세션 만료까지 27:41</span>
+              <SessionTimer />
               <span className="text-foreground">박정현 주무관님, 안녕하세요</span>
             </div>
           </div>

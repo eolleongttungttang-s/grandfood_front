@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowUpDown, Download, Search } from "lucide-react";
 
 import { Resident, RiskLevel } from "@/lib/admin-residents";
@@ -14,13 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -55,13 +49,13 @@ export function ResidentsTable({
   data: Resident[];
   initialRisk?: RiskLevel | "all";
 }) {
+  const router = useRouter();
   const [riskFilter, setRiskFilter] = useState<RiskLevel | "all">(initialRisk);
   const [search, setSearch] = useState("");
   const [dongFilter, setDongFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("no");
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<Resident | null>(null);
 
   const dongs = useMemo(
     () => Array.from(new Set(data.map((r) => r.dong))).sort(),
@@ -262,7 +256,7 @@ export function ResidentsTable({
               <TableRow
                 key={r.id}
                 className="cursor-pointer"
-                onClick={() => setSelected(r)}
+                onClick={() => router.push(`/admin/residents/${r.id}`)}
               >
                 <TableCell className="text-muted-foreground">{r.id}</TableCell>
                 <TableCell className="font-semibold text-foreground">
@@ -312,45 +306,6 @@ export function ResidentsTable({
           </div>
         </div>
       </div>
-
-      <Sheet open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
-        <SheetContent>
-          {selected && (
-            <>
-              <SheetHeader>
-                <SheetTitle className="flex items-center gap-2">
-                  {selected.name}
-                  <Badge className={RISK_BADGE_CLASS[selected.risk]}>
-                    {selected.risk}
-                  </Badge>
-                </SheetTitle>
-                <SheetDescription>
-                  {selected.age}세 · {selected.gender} · {selected.dong}
-                </SheetDescription>
-              </SheetHeader>
-              <div className="flex flex-col gap-4 px-4 pb-4 text-sm">
-                <DetailRow label="주요 질환" value={selected.condition} />
-                <DetailRow label="최근 응답" value={selected.lastResponse} />
-                <DetailRow
-                  label="보호자"
-                  value={`${selected.guardianName} · ${selected.guardianPhone}`}
-                />
-                <div className="flex flex-col gap-1 rounded-lg bg-muted p-3">
-                  <span className="text-xs font-semibold text-muted-foreground">
-                    담당자 메모
-                  </span>
-                  <p className="leading-relaxed text-foreground">
-                    {selected.note}
-                  </p>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  열람 사유가 자동으로 감사 로그에 기록됩니다.
-                </p>
-              </div>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
@@ -406,14 +361,5 @@ function SortableHead({
         />
       </button>
     </TableHead>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-border pb-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground">{value}</span>
-    </div>
   );
 }
