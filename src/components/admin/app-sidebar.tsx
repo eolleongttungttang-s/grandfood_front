@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import {
   AlertTriangle,
   BarChart3,
@@ -27,14 +28,51 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { RESIDENTS } from "@/lib/admin-residents";
 
-export function AppSidebar({
-  highRiskCount,
-  onShowHighRisk,
-}: {
-  highRiskCount: number;
-  onShowHighRisk: () => void;
-}) {
+const HIGH_RISK_COUNT = RESIDENTS.filter((r) => r.risk === "고위험").length;
+
+const NAV_GROUPS: {
+  label: string;
+  items: {
+    label: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge?: number;
+  }[];
+}[] = [
+  {
+    label: "관리",
+    items: [
+      { label: "대상자 명단", href: "/admin/residents", icon: UsersRound },
+      {
+        label: "이상 신호 큐",
+        href: "/admin/residents?risk=고위험",
+        icon: AlertTriangle,
+        badge: HIGH_RISK_COUNT,
+      },
+      { label: "방문·상담 일지", href: "/admin/visits", icon: ClipboardList },
+    ],
+  },
+  {
+    label: "통계",
+    items: [
+      { label: "지역 건강 지표", href: "/admin/health-stats", icon: BarChart3 },
+      { label: "급식 예산 집행", href: "/admin/budget", icon: Wallet },
+      { label: "월간 보고서 출력", href: "/admin/reports", icon: FileText },
+    ],
+  },
+  {
+    label: "보안",
+    items: [
+      { label: "접근 감사 로그", href: "/admin/audit-log", icon: ShieldCheck },
+      { label: "담당자 권한", href: "/admin/permissions", icon: KeyRound },
+    ],
+  },
+];
+
+export function AppSidebar() {
+  const pathname = usePathname();
   const router = useRouter();
 
   return (
@@ -51,107 +89,34 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>관리</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton isActive tooltip="대상자 명단">
-                  <UsersRound />
-                  <span>대상자 명단</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="이상 신호 큐"
-                  onClick={onShowHighRisk}
-                >
-                  <AlertTriangle />
-                  <span>이상 신호 큐</span>
-                </SidebarMenuButton>
-                {highRiskCount > 0 && (
-                  <SidebarMenuBadge>{highRiskCount}</SidebarMenuBadge>
-                )}
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="방문·상담 일지 (준비 중)"
-                  disabled
-                  className="opacity-50"
-                >
-                  <ClipboardList />
-                  <span>방문·상담 일지</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>통계</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="지역 건강 지표 (준비 중)"
-                  disabled
-                  className="opacity-50"
-                >
-                  <BarChart3 />
-                  <span>지역 건강 지표</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="급식 예산 집행 (준비 중)"
-                  disabled
-                  className="opacity-50"
-                >
-                  <Wallet />
-                  <span>급식 예산 집행</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="월간 보고서 출력 (준비 중)"
-                  disabled
-                  className="opacity-50"
-                >
-                  <FileText />
-                  <span>월간 보고서 출력</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>보안</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="접근 감사 로그 (준비 중)"
-                  disabled
-                  className="opacity-50"
-                >
-                  <ShieldCheck />
-                  <span>접근 감사 로그</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="담당자 권한 (준비 중)"
-                  disabled
-                  className="opacity-50"
-                >
-                  <KeyRound />
-                  <span>담당자 권한</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {NAV_GROUPS.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => {
+                  const isActive = pathname === item.href.split("?")[0];
+                  const Icon = item.icon;
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        isActive={isActive}
+                        tooltip={item.label}
+                        render={<Link href={item.href} />}
+                      >
+                        <Icon />
+                        <span>{item.label}</span>
+                      </SidebarMenuButton>
+                      {!!item.badge && (
+                        <SidebarMenuBadge>{item.badge}</SidebarMenuBadge>
+                      )}
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
       <SidebarFooter>

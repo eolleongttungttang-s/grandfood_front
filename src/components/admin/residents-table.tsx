@@ -50,13 +50,12 @@ const RISK_ORDER: Record<RiskLevel, number> = { 고위험: 0, 주의: 1, 보통:
 
 export function ResidentsTable({
   data,
-  riskFilter,
-  onRiskFilterChange,
+  initialRisk = "all",
 }: {
   data: Resident[];
-  riskFilter: RiskLevel | "all";
-  onRiskFilterChange: (value: RiskLevel | "all") => void;
+  initialRisk?: RiskLevel | "all";
 }) {
+  const [riskFilter, setRiskFilter] = useState<RiskLevel | "all">(initialRisk);
   const [search, setSearch] = useState("");
   const [dongFilter, setDongFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("no");
@@ -175,7 +174,7 @@ export function ResidentsTable({
             <Select
               value={riskFilter}
               onValueChange={(v) => {
-                onRiskFilterChange(v as RiskLevel | "all");
+                setRiskFilter(v as RiskLevel | "all");
                 setPage(1);
               }}
             >
