@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { GrandFoodMark } from "@/components/brand/grandfood-logo";
 
 const OTP_LENGTH = 6;
 
@@ -54,9 +55,7 @@ export default function AdminLoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4 py-16">
       <Card className="w-full max-w-[440px] shadow-lg">
         <CardHeader className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent/20 text-accent">
-            <ShieldCheck className="h-6 w-6" />
-          </div>
+          <GrandFoodMark className="h-12 w-12 rounded-2xl" />
           <div className="flex items-center gap-2">
             <span className="text-sm font-extrabold text-foreground">
               GrandFood

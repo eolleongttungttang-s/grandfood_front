@@ -28,6 +28,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { GrandFoodMark } from "@/components/brand/grandfood-logo";
 import { RESIDENTS } from "@/lib/admin-residents";
 
 const HIGH_RISK_COUNT = RESIDENTS.filter((r) => r.risk === "고위험").length;
@@ -79,6 +80,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1.5">
+          <GrandFoodMark className="h-6 w-6 shrink-0 rounded-md" />
           <span className="text-sm font-extrabold text-sidebar-foreground">
             GrandFood
           </span>
