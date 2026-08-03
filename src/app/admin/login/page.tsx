@@ -1,141 +1,131 @@
 "use client";
 
 import { useState } from "react";
+import { CircleHelp } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Loader2, MapPinCheck, ShieldCheck, TimerReset } from "lucide-react";
 import { toast } from "sonner";
 
+import { GrandFoodLogo } from "@/components/brand/grandfood-logo";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { GrandFoodMark } from "@/components/brand/grandfood-logo";
-
-const OTP_LENGTH = 6;
+import { SignupDialog } from "@/components/admin/signup-dialog";
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [otp, setOtp] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [signupOpen, setSignupOpen] = useState(false);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError(null);
 
-    const form = new FormData(e.currentTarget);
-    const email = String(form.get("email") ?? "").trim();
+    const form = new FormData(event.currentTarget);
+    const account = String(form.get("account") ?? "").trim();
     const password = String(form.get("password") ?? "");
 
-    if (!email || !password) {
-      setError("담당자 계정과 비밀번호를 입력해 주세요.");
-      return;
-    }
-    if (otp.length !== OTP_LENGTH) {
-      setError("OTP 6자리를 모두 입력해 주세요.");
+    if (!account || !password) {
+      setError("아이디와 비밀번호를 모두 입력해 주세요.");
       return;
     }
 
-    setSubmitting(true);
-    setTimeout(() => {
-      toast.success("인증되었습니다. 대상자 명단으로 이동할게요.");
-      router.push("/admin/residents");
-    }, 700);
+    toast.success("최고관리자 화면으로 이동합니다.");
+    router.push("/admin/residents");
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-16">
-      <Card className="w-full max-w-[440px] shadow-lg">
-        <CardHeader className="flex flex-col items-center gap-3 text-center">
-          <GrandFoodMark className="h-12 w-12 rounded-2xl" />
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-extrabold text-foreground">
-              GrandFood
-            </span>
-            <Badge variant="outline" className="border-accent text-accent">
-              GOV ADMIN
-            </Badge>
-          </div>
-          <CardTitle className="text-xl">안녕하세요, 담당자님</CardTitle>
-          <CardDescription className="text-balance">
-            어르신들의 건강 정보를 안전하게 지키기 위해 두 단계로 확인할게요.
-            불편을 드려 죄송하지만, 잠깐이면 끝나요.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="orgCode">기관 코드</Label>
-              <Input id="orgCode" name="orgCode" defaultValue="SEOUL-GN-0142" required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="email">담당자 계정</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="jhpark@gangnam.go.kr"
-                required
+    <main className="flex min-h-screen items-center justify-center bg-[#f4f6f8] px-5 py-12">
+      <section className="w-full max-w-md">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-9">
+            <div className="mb-8">
+              <GrandFoodLogo
+                className="mb-8"
+                markClassName="h-9 w-9"
+                wordmarkClassName="text-lg font-extrabold text-slate-900"
               />
+              <p className="text-sm font-semibold text-primary">관리자 로그인</p>
+              <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                담당자 계정으로 로그인
+              </h2>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password">비밀번호</Label>
-              <Input id="password" name="password" type="password" required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="otp">2차 인증 · OTP 6자리</Label>
-              <Input
-                id="otp"
-                value={otp}
-                onChange={(e) =>
-                  setOtp(e.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH))
-                }
-                inputMode="numeric"
-                maxLength={OTP_LENGTH}
-                placeholder="······"
-                className="h-12 text-center text-lg font-bold tracking-[0.6em]"
-              />
-              <p className="text-xs text-muted-foreground">
-                문자로 보내드린 인증번호 6자리를 입력해 주세요.
+
+            <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+              <div className="space-y-2">
+                <Label htmlFor="account">아이디</Label>
+                <Input
+                  id="account"
+                  name="account"
+                  autoComplete="username"
+                  placeholder="아이디 입력"
+                  className="h-12 bg-white"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password">비밀번호</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="비밀번호 입력"
+                  className="h-12 bg-white"
+                />
+              </div>
+
+              {error && (
+                <Alert variant="destructive" role="alert">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <Button type="submit" size="lg" className="h-12 w-full text-base">
+                로그인
+              </Button>
+            </form>
+
+            <nav
+              aria-label="계정 도움말"
+              className="mt-5 flex items-center justify-center text-sm text-slate-500"
+            >
+              {["아이디 찾기", "비밀번호 찾기", "회원가입"].map(
+                (label, index) => (
+                  <span key={label} className="flex items-center">
+                    {index > 0 && (
+                      <span
+                        aria-hidden="true"
+                        className="mx-3 h-3 w-px bg-slate-300"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="font-medium underline-offset-4 hover:text-primary hover:underline"
+                      onClick={() => {
+                        if (label === "회원가입") {
+                          setSignupOpen(true);
+                          return;
+                        }
+                        toast.info(`${label} 기능은 추후 연결됩니다.`);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  </span>
+                ),
+              )}
+            </nav>
+
+            <div className="mt-7 flex items-start gap-2 border-t border-slate-200 pt-5 text-sm text-slate-500">
+              <CircleHelp className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                계정 발급 또는 로그인에 문제가 있으면 소속 기관의 시스템
+                관리자에게 문의해 주세요.
               </p>
             </div>
-
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <Button type="submit" size="lg" disabled={submitting} className="mt-1">
-              {submitting && <Loader2 className="animate-spin" />}
-              {submitting ? "인증하는 중..." : "인증하고 들어가기"}
-            </Button>
-          </form>
-
-          <div className="mt-6 flex flex-col gap-2.5 rounded-lg bg-muted p-4">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <MapPinCheck className="h-3.5 w-3.5 text-chart-3" />
-              <span>허용된 기관 IP에서 접속 중이에요 · 210.94.xx.xx</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <ShieldCheck className="h-3.5 w-3.5 text-chart-3" />
-              <span>기관 발급 인증서(GPKI)가 확인됐어요</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <TimerReset className="h-3.5 w-3.5 text-accent" />
-              <span>세션은 30분 뒤 자동으로 종료돼요</span>
-            </div>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+      </section>
+      <SignupDialog open={signupOpen} onClose={() => setSignupOpen(false)} />
+    </main>
   );
 }

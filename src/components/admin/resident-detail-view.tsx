@@ -8,6 +8,7 @@ import { Resident } from "@/lib/admin-residents";
 import { ResidentDetail } from "@/lib/admin-resident-detail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MealImageUpload } from "@/components/admin/meal-image-upload";
 
 const MEAL_TONE_CLASS: Record<string, string> = {
   완식: "bg-foreground",
@@ -88,14 +89,6 @@ export function ResidentDetailView({
           <Button
             variant="outline"
             size="sm"
-            nativeButton={false}
-            render={<Link href="/admin/visits" />}
-          >
-            상담 일지 추가
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
             onClick={() => toast.success(`${resident.name}님 방문을 요청했어요.`)}
           >
             방문 요청
@@ -108,6 +101,8 @@ export function ResidentDetailView({
           </Button>
         </div>
       </div>
+
+      <MealImageUpload residentId={resident.id} residentName={resident.name} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
