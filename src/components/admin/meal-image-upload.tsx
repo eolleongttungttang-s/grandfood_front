@@ -6,6 +6,16 @@ import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { readAdminSession } from "@/lib/admin-auth";
 
 type MealImage = {
   file: File;
@@ -163,6 +173,8 @@ export function MealImageUpload({
   const [beforeImage, setBeforeImage] = useState<MealImage | null>(null);
   const [afterImage, setAfterImage] = useState<MealImage | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [mealSlot, setMealSlot] = useState("");
+  const [comboId, setComboId] = useState("");
 
   useEffect(() => {
     const previewUrl = beforeImage?.previewUrl;
@@ -185,21 +197,39 @@ export function MealImageUpload({
     setter({ file, previewUrl: URL.createObjectURL(file) });
   };
 
-  const canAnalyze = Boolean(beforeImage && afterImage);
+  const canAnalyze = Boolean(
+    beforeImage && afterImage && mealSlot && comboId.trim(),
+  );
 
   const uploadImages = async () => {
-    if (!beforeImage || !afterImage || isUploading) return;
+    if (
+      !beforeImage ||
+      !afterImage ||
+      !mealSlot ||
+      !comboId.trim() ||
+      isUploading
+    )
+      return;
 
     const formData = new FormData();
-    formData.append("before_image", beforeImage.file);
-    formData.append("after_image", afterImage.file);
+    formData.append("mealSlot", mealSlot);
+    formData.append("comboId", comboId.trim());
+    formData.append("beforePhoto", beforeImage.file);
+    formData.append("afterPhoto", afterImage.file);
     setIsUploading(true);
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const accessToken = readAdminSession()?.accessToken;
       const response = await fetch(
-        `${apiUrl}/api/residents/${encodeURIComponent(residentId)}/meal-images`,
-        { method: "POST", body: formData },
+        `${apiUrl}/wards/${encodeURIComponent(residentId)}/meal-logs`,
+        {
+          method: "POST",
+          headers: accessToken
+            ? { Authorization: `Bearer ${accessToken}` }
+            : undefined,
+          body: formData,
+        },
       );
 
       const result = (await response.json().catch(() => null)) as
@@ -212,6 +242,8 @@ export function MealImageUpload({
       toast.success("식사 전·후 이미지가 스토리지에 저장됐어요.");
       setBeforeImage(null);
       setAfterImage(null);
+      setMealSlot("");
+      setComboId("");
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "이미지 업로드 중 오류가 발생했습니다.",
@@ -243,6 +275,31 @@ export function MealImageUpload({
         </Button>
       </div>
 
+      <div className="mt-5 grid gap-4 rounded-xl border border-border bg-muted/25 p-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="meal-slot">식사 구분</Label>
+          <Select value={mealSlot} onValueChange={(value) => setMealSlot(value ?? "")}>
+            <SelectTrigger id="meal-slot" className="w-full">
+              <SelectValue placeholder="아침·점심·저녁 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="아침">아침</SelectItem>
+              <SelectItem value="점심">점심</SelectItem>
+              <SelectItem value="저녁">저녁</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="combo-id">반찬 조합 ID</Label>
+          <Input
+            id="combo-id"
+            value={comboId}
+            onChange={(event) => setComboId(event.target.value)}
+            placeholder="예: COMBO-0001"
+          />
+        </div>
+      </div>
+
       <div className="mt-5 grid gap-5 md:grid-cols-2">
         <ImageSlot
           badge="BEFORE"
@@ -271,8 +328,8 @@ export function MealImageUpload({
         {isUploading
           ? "식사 전·후 이미지를 안전하게 저장하고 있어요."
           : canAnalyze
-          ? "두 장의 사진이 준비됐습니다. 잔반 분석을 시작할 수 있어요."
-          : "식사 전·후 사진을 모두 등록하면 잔반 분석을 시작할 수 있어요."}
+          ? "필수 정보와 두 장의 사진이 준비됐습니다. 잔반 분석을 시작할 수 있어요."
+          : "식사 구분, 반찬 조합 ID와 식사 전·후 사진을 모두 입력해 주세요."}
       </div>
     </section>
   );

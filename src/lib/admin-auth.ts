@@ -12,6 +12,7 @@ export type AccessLevel =
 export type AdminSession = {
   account: string;
   accessLevel: AccessLevel;
+  accessToken?: string;
   name?: string;
   facilityName?: string;
   role?: string;

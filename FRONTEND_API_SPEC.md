@@ -191,6 +191,58 @@ API 요청 시 위 로컬 데이터를 snake_case JSON 형식으로 변환합니
 
 ---
 
+## 4. 식사 기록 및 이미지 전달
+
+### 프론트 기능
+
+`대상자 상세 → 오늘의 잔반 이미지 → 잔반 분석 시작`
+
+### API
+
+```http
+POST /wards/{ward_id}/meal-logs
+```
+
+### URL 및 헤더
+
+| 위치 | 이름 | 타입 | 필수 | 설명 |
+|---|---|---|---|---|
+| URL 경로 | `ward_id` | string | 필수 | 프론트의 대상자 ID |
+| Header | `Authorization` | `Bearer {token}` | JWT 연결 후 필수 | 로그인 응답으로 받은 접근 토큰 |
+
+### 요청 형식
+
+`multipart/form-data`
+
+| 위치 | 이름 | 타입 | 필수 | 설명 |
+|---|---|---|---|---|
+| Form | `mealSlot` | string | 필수 | 아침, 점심, 저녁 |
+| Form | `comboId` | string | 필수 | 반찬 조합 ID |
+| File | `beforePhoto` | image file | 필수 | 식사 전 사진 |
+| File | `afterPhoto` | image file | 필수 | 식사 후 사진 |
+
+### 프론트 요청 예시
+
+```ts
+const formData = new FormData();
+formData.append("mealSlot", mealSlot);
+formData.append("comboId", comboId);
+formData.append("beforePhoto", beforeImage);
+formData.append("afterPhoto", afterImage);
+
+await fetch(`${API_URL}/wards/${wardId}/meal-logs`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${accessToken}`,
+  },
+  body: formData,
+});
+```
+
+현재 테스트 로그인에는 JWT가 없으므로 세션에 `accessToken`이 있을 때만 `Authorization` 헤더를 추가합니다.
+
+---
+
 ## 현재 구현 상태 요약
 
 | 프론트 버튼 | API | 상태 |
@@ -198,6 +250,7 @@ API 요청 시 위 로컬 데이터를 snake_case JSON 형식으로 변환합니
 | 지자체 및 기관코드 생성 | `POST /api/admin/facilities` | 프론트 `fetch()` 요청 코드 작성됨, 백엔드 구현 여부 미확인 |
 | 관리자 계정 발급 | `POST /api/admin/staff` | 프론트 `fetch()` 요청 코드 작성됨, 백엔드 구현 여부 미확인 |
 | 회원가입 신청 | `POST /api/signup/requests` | 프론트 `fetch()` 요청 코드 작성됨, 백엔드 구현 여부 미확인 |
+| 잔반 이미지 전달 | `POST /wards/{ward_id}/meal-logs` | 프론트 `fetch()` 요청 코드 작성됨, JWT 연결 전 |
 
 ## 관련 프론트 파일
 

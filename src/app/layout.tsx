@@ -6,6 +6,9 @@ import { Toaster } from "@/components/ui/sonner";
 export const metadata: Metadata = {
   title: "Grand Food",
   description: "Grand Food",
+  icons: {
+    icon: [{ url: "/grandfood-favicon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({
