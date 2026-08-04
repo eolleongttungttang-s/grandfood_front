@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpDown, Download, Search } from "lucide-react";
+import { ArrowUpDown, Download, Plus, Search, X } from "lucide-react";
+import { toast } from "sonner";
 
 import { Resident, RiskLevel } from "@/lib/admin-residents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -37,6 +39,7 @@ const RESPONSE_TONE_CLASS: Record<Resident["lastResponseTone"], string> = {
 };
 
 const PAGE_SIZE = 8;
+const TEST_RESIDENTS_STORAGE_KEY = "grandfood_test_residents";
 
 type SortKey = "no" | "age" | "risk";
 
@@ -50,25 +53,44 @@ export function ResidentsTable({
   initialRisk?: RiskLevel | "all";
 }) {
   const router = useRouter();
+  const [residents, setResidents] = useState(data);
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [riskFilter, setRiskFilter] = useState<RiskLevel | "all">(initialRisk);
   const [search, setSearch] = useState("");
-  const [dongFilter, setDongFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("no");
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
 
-  const dongs = useMemo(
-    () => Array.from(new Set(data.map((r) => r.dong))).sort(),
-    [data]
-  );
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const saved = window.localStorage.getItem(TEST_RESIDENTS_STORAGE_KEY);
+      if (!saved) return;
+
+      try {
+        const localResidents = (JSON.parse(saved) as Resident[]).map((resident) => ({
+          ...resident,
+          isPrototype: true,
+        }));
+        setResidents([...data, ...localResidents]);
+      } catch {
+        window.localStorage.removeItem(TEST_RESIDENTS_STORAGE_KEY);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [data]);
 
   const filtered = useMemo(() => {
-    let rows = data;
+    let rows = residents;
     if (riskFilter !== "all") rows = rows.filter((r) => r.risk === riskFilter);
-    if (dongFilter !== "all") rows = rows.filter((r) => r.dong === dongFilter);
     if (search.trim()) {
       const q = search.trim();
-      rows = rows.filter((r) => r.name.includes(q));
+      rows = rows.filter(
+        (r) =>
+          r.name.includes(q) ||
+          r.facilityCode?.includes(q) ||
+          (r.address ?? r.dong).includes(q),
+      );
     }
     const sorted = [...rows].sort((a, b) => {
       let diff = 0;
@@ -78,7 +100,29 @@ export function ResidentsTable({
       return sortAsc ? diff : -diff;
     });
     return sorted;
-  }, [data, riskFilter, dongFilter, search, sortKey, sortAsc]);
+  }, [residents, riskFilter, search, sortKey, sortAsc]);
+
+  function registerResident(resident: Resident) {
+    const localResidents = residents.filter(
+      (item) => item.isPrototype || item.id.startsWith("LOCAL-"),
+    );
+    const nextLocalResidents = [...localResidents, resident];
+    window.localStorage.setItem(
+      TEST_RESIDENTS_STORAGE_KEY,
+      JSON.stringify(nextLocalResidents),
+    );
+    setResidents([...data, ...nextLocalResidents]);
+    setRegisterOpen(false);
+    setPage(1);
+    toast.success(`${resident.name} 대상자를 등록했습니다.`);
+  }
+
+  const nextResidentId = String(
+    residents.reduce((largest, resident) => {
+      const id = /^\d+$/.test(resident.id) ? Number(resident.id) : 0;
+      return Math.max(largest, id);
+    }, 0) + 1,
+  ).padStart(3, "0");
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -98,12 +142,22 @@ export function ResidentsTable({
   }
 
   function exportCsv() {
-    const header = ["번호", "성명", "나이", "거주 동", "주요 질환", "최근 응답", "위험도"];
+    const header = [
+      "번호",
+      "성명",
+      "기관코드",
+      "나이",
+      "주소지",
+      "주요 질환",
+      "최근 응답",
+      "위험도",
+    ];
     const rows = filtered.map((r) => [
       r.id,
       r.name,
+      r.facilityCode ?? "미지정",
       String(r.age),
-      r.dong,
+      r.address ?? r.dong,
       r.condition,
       r.lastResponse,
       r.risk,
@@ -129,10 +183,14 @@ export function ResidentsTable({
               대상자 명단
             </h1>
             <p className="text-sm text-muted-foreground">
-              관내 급식 지원 어르신 {data.length}명 · 오늘 기준
+              관내 급식 지원 어르신 {residents.length}명 · 오늘 기준
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setRegisterOpen(true)}>
+              <Plus />
+              대상자 등록
+            </Button>
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -141,30 +199,10 @@ export function ResidentsTable({
                   setSearch(e.target.value);
                   setPage(1);
                 }}
-                placeholder="이름으로 검색"
+                placeholder="이름·기관코드·주소 검색"
                 className="w-40 pl-8"
               />
             </div>
-            <Select
-              value={dongFilter}
-              onValueChange={(v) => {
-                if (!v) return;
-                setDongFilter(v);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue placeholder="동 전체" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">동 전체</SelectItem>
-                {dongs.map((d) => (
-                  <SelectItem key={d} value={d}>
-                    {d}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Select
               value={riskFilter}
               onValueChange={(v) => {
@@ -192,23 +230,23 @@ export function ResidentsTable({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard
             label="전체 대상자"
-            value={String(data.length)}
+            value={String(residents.length)}
           />
           <StatCard
             label="고위험군"
-            value={String(data.filter((r) => r.risk === "고위험").length)}
+            value={String(residents.filter((r) => r.risk === "고위험").length)}
             tone="danger"
           />
           <StatCard
             label="3일 이상 미응답"
             value={String(
-              data.filter((r) => r.lastResponseTone === "danger").length
+              residents.filter((r) => r.lastResponseTone === "danger").length
             )}
             tone="danger"
           />
           <StatCard
             label="검진 갱신 필요"
-            value={String(Math.round(data.length * 0.06))}
+            value={String(Math.round(residents.length * 0.06))}
           />
         </div>
       </div>
@@ -224,13 +262,14 @@ export function ResidentsTable({
                 onClick={() => toggleSort("no")}
               />
               <TableHead>성명</TableHead>
+              <TableHead>기관코드</TableHead>
               <SortableHead
                 label="나이"
                 active={sortKey === "age"}
                 asc={sortAsc}
                 onClick={() => toggleSort("age")}
               />
-              <TableHead>거주 동</TableHead>
+              <TableHead>주소지</TableHead>
               <TableHead>주요 질환</TableHead>
               <TableHead>최근 응답</TableHead>
               <SortableHead
@@ -245,7 +284,7 @@ export function ResidentsTable({
             {pageRows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="py-10 text-center text-sm text-muted-foreground"
                 >
                   조건에 맞는 대상자가 없어요.
@@ -256,14 +295,23 @@ export function ResidentsTable({
               <TableRow
                 key={r.id}
                 className="cursor-pointer"
-                onClick={() => router.push(`/admin/residents/${r.id}`)}
+                onClick={() => {
+                  if (r.isPrototype || r.id.startsWith("LOCAL-")) {
+                    toast.info("프로토타입 등록 대상자의 상세 화면은 추후 연결됩니다.");
+                    return;
+                  }
+                  router.push(`/admin/residents/${r.id}`);
+                }}
               >
                 <TableCell className="text-muted-foreground">{r.id}</TableCell>
                 <TableCell className="font-semibold text-foreground">
                   {r.name}
                 </TableCell>
+                <TableCell className="font-mono text-xs">
+                  {r.facilityCode ?? "미지정"}
+                </TableCell>
                 <TableCell>{r.age}</TableCell>
-                <TableCell>{r.dong}</TableCell>
+                <TableCell>{r.address ?? r.dong}</TableCell>
                 <TableCell>{r.condition}</TableCell>
                 <TableCell className={RESPONSE_TONE_CLASS[r.lastResponseTone]}>
                   {r.lastResponse}
@@ -306,6 +354,213 @@ export function ResidentsTable({
           </div>
         </div>
       </div>
+      <RegisterResidentDialog
+        open={registerOpen}
+        nextResidentId={nextResidentId}
+        onClose={() => setRegisterOpen(false)}
+        onRegister={registerResident}
+      />
+    </div>
+  );
+}
+
+function RegisterResidentDialog({
+  open,
+  nextResidentId,
+  onClose,
+  onRegister,
+}: {
+  open: boolean;
+  nextResidentId: string;
+  onClose: () => void;
+  onRegister: (resident: Resident) => void;
+}) {
+  const [gender, setGender] = useState<Resident["gender"]>("여");
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  if (!open) return null;
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") ?? "").trim();
+    const age = Number(form.get("age"));
+    const address = String(form.get("address") ?? "").trim();
+    const facilityCode = String(form.get("facilityCode") ?? "").trim();
+    const condition = String(form.get("condition") ?? "").trim();
+    const guardianName = String(form.get("guardianName") ?? "").trim();
+    const guardianPhone = String(form.get("guardianPhone") ?? "").trim();
+    const note = String(form.get("note") ?? "").trim();
+
+    if (!name || !age || !address || !facilityCode) return;
+
+    onRegister({
+      id: nextResidentId,
+      isPrototype: true,
+      name,
+      age,
+      gender,
+      facilityCode,
+      address,
+      dong: address,
+      condition: condition || "특이사항 없음",
+      lastResponse: "등록 후 응답 없음",
+      lastResponseTone: "neutral",
+      risk: "보통",
+      guardianName: guardianName || "미등록",
+      guardianPhone: guardianPhone || "미등록",
+      note: note || "등록된 메모가 없습니다.",
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resident-register-title"
+        className="max-h-full w-full max-w-2xl overflow-y-auto rounded-2xl bg-card shadow-2xl"
+      >
+        <header className="sticky top-0 z-10 flex items-start justify-between border-b border-border bg-card px-6 py-5 sm:px-8">
+          <div>
+            <h2 id="resident-register-title" className="text-xl font-bold">
+              대상자 등록
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              급식 지원 대상자의 기본 정보를 입력해 주세요.
+            </p>
+          </div>
+          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose}>
+            <X />
+            <span className="sr-only">닫기</span>
+          </Button>
+        </header>
+
+        <form onSubmit={handleSubmit} className="space-y-6 px-6 py-6 sm:px-8">
+          <div className="flex items-center justify-between rounded-lg bg-muted px-4 py-3 text-sm">
+            <span className="text-muted-foreground">자동 부여 대상자 번호</span>
+            <span className="font-mono font-bold text-foreground">
+              {nextResidentId}
+            </span>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="resident-name">
+                이름 <span className="text-destructive">*</span>
+              </Label>
+              <Input id="resident-name" name="name" placeholder="대상자 이름" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resident-age">
+                나이 <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="resident-age"
+                name="age"
+                type="number"
+                min={1}
+                max={120}
+                placeholder="예: 78"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resident-gender">
+                성별 <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={gender}
+                onValueChange={(value) => setGender((value as Resident["gender"]) ?? "여")}
+              >
+                <SelectTrigger id="resident-gender" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="여">여</SelectItem>
+                  <SelectItem value="남">남</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resident-address">
+                주소지 <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="resident-address"
+                name="address"
+                placeholder="예: 서울특별시 강서구 화곡로 123"
+                required
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resident-facility-code">
+                기관코드 <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="resident-facility-code"
+                name="facilityCode"
+                placeholder="예: GS-0001"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                대상자를 관리하는 지자체의 기관코드를 입력해 주세요.
+              </p>
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resident-condition">주요 질환 (선택)</Label>
+              <Input
+                id="resident-condition"
+                name="condition"
+                placeholder="예: 고혈압 · 당뇨 (선택)"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="guardian-name">보호자 이름·관계 (선택)</Label>
+              <Input
+                id="guardian-name"
+                name="guardianName"
+                placeholder="예: 홍길동 (자녀)"
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="guardian-phone">보호자 연락처 (선택)</Label>
+              <Input
+                id="guardian-phone"
+                name="guardianPhone"
+                type="tel"
+                placeholder="010-0000-0000"
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resident-note">메모 (선택)</Label>
+              <Input
+                id="resident-note"
+                name="note"
+                placeholder="식이 제한, 방문 시 참고사항 등"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-border pt-5">
+            <Button type="button" variant="outline" onClick={onClose}>
+              취소
+            </Button>
+            <Button type="submit">
+              <Plus /> 대상자 등록
+            </Button>
+          </div>
+        </form>
+      </section>
     </div>
   );
 }

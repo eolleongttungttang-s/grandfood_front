@@ -20,6 +20,7 @@ import {
   getTestSignupRequests,
   saveTestSignupRequests,
 } from "@/lib/admin-auth";
+import { postJson } from "@/lib/api";
 
 type SignupDialogProps = {
   open: boolean;
@@ -27,27 +28,9 @@ type SignupDialogProps = {
 };
 
 type StoredFacility = {
-  facilityId: number;
+  facilityId: string;
   facilityCode: string;
 };
-
-async function postSignupRequest(payload: Record<string, unknown>) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-  const response = await fetch(`${apiUrl}/api/signup/requests`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const result = (await response.json().catch(() => null)) as
-      | { detail?: string }
-      | null;
-    throw new Error(result?.detail ?? `API 요청에 실패했습니다. (${response.status})`);
-  }
-
-  return response.json().catch(() => null);
-}
 
 export function SignupDialog({ open, onClose }: SignupDialogProps) {
   const [error, setError] = useState<string | null>(null);
@@ -121,8 +104,6 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
       }).format(new Date()),
     };
 
-    saveTestSignupRequests([...requests, signupRequest]);
-
     const savedFacilities = window.localStorage.getItem("grandfood_test_facilities");
     const facilities = savedFacilities
       ? (JSON.parse(savedFacilities) as StoredFacility[])
@@ -132,7 +113,7 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
     );
 
     try {
-      await postSignupRequest({
+      await postJson("/api/signup/requests", {
         facility_id: facility?.facilityId ?? null,
         facility_code: signupRequest.facilityCode,
         workplace_name: signupRequest.workplaceName,
@@ -144,15 +125,14 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
         phone: signupRequest.phone,
         password: signupRequest.password,
       });
-      toast.success("회원가입 신청을 백엔드에 전송했습니다.");
+      saveTestSignupRequests([...requests, signupRequest]);
+      toast.success("회원가입 신청을 전송했습니다.");
+      onClose();
     } catch (error) {
-      toast.warning(
-        `회원가입 신청은 로컬에 저장했습니다. ${
-          error instanceof Error ? error.message : "백엔드 API에 연결하지 못했습니다."
-        }`,
+      toast.error(
+        error instanceof Error ? error.message : "회원가입 신청을 전송하지 못했습니다.",
       );
     }
-    onClose();
   }
 
   return (

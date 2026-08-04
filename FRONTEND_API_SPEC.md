@@ -7,7 +7,8 @@
 ## 공통 설정
 
 - API 주소 환경변수: `NEXT_PUBLIC_API_URL`
-- 로컬 기본 주소: `http://localhost:8000`
+- 개발 환경 기본 주소: `http://localhost:8000`
+- 배포 환경에서는 `NEXT_PUBLIC_API_URL`이 없으면 localhost로 요청하지 않고 설정 오류를 표시합니다.
 - JSON 요청 헤더: `Content-Type: application/json`
 
 ---
@@ -52,11 +53,11 @@ POST /api/admin/facilities
 
 ```text
 기관코드 생성
-→ 브라우저 localStorage에 테스트 데이터 저장
 → POST /api/admin/facilities 요청
+→ 성공 응답을 받은 뒤 브라우저 localStorage와 화면 갱신
 ```
 
-백엔드 요청이 실패해도 로컬 테스트 데이터는 유지됩니다.
+백엔드 요청이 실패하면 로컬 테스트 데이터와 화면을 갱신하지 않습니다.
 
 ### 확인할 사항
 
@@ -109,11 +110,11 @@ POST /api/admin/staff
 ### 현재 프론트 동작
 
 ```text
-관리자 계정 로컬 저장
-→ POST /api/admin/staff 요청
+POST /api/admin/staff 요청
+→ 성공 응답을 받은 뒤 관리자 계정을 로컬 테스트 캐시에 저장
 ```
 
-백엔드 요청이 실패해도 로컬 테스트 계정은 유지됩니다.
+백엔드 요청이 실패하면 로컬 테스트 계정을 생성하지 않습니다.
 
 ### 확인할 사항
 
@@ -187,7 +188,59 @@ POST /api/signup/requests
 }
 ```
 
-API 요청 시 위 로컬 데이터를 snake_case JSON 형식으로 변환합니다. 백엔드 요청이 실패해도 승인 화면 테스트를 위해 로컬 신청 데이터는 유지됩니다.
+API 요청 시 위 로컬 데이터를 snake_case JSON 형식으로 변환합니다. 성공 응답을 받은 뒤에만 승인 화면용 로컬 신청 데이터를 저장합니다.
+
+---
+
+## 4. 식사 기록 및 이미지 전달
+
+### 프론트 기능
+
+`대상자 상세 → 오늘의 잔반 이미지 → 잔반 분석 시작`
+
+### API
+
+```http
+POST /wards/{ward_id}/meal-logs
+```
+
+### URL 및 헤더
+
+| 위치 | 이름 | 타입 | 필수 | 설명 |
+|---|---|---|---|---|
+| URL 경로 | `ward_id` | string | 필수 | 프론트의 대상자 ID |
+| Header | `Authorization` | `Bearer {token}` | JWT 연결 후 필수 | 로그인 응답으로 받은 접근 토큰 |
+
+### 요청 형식
+
+`multipart/form-data`
+
+| 위치 | 이름 | 타입 | 필수 | 설명 |
+|---|---|---|---|---|
+| Form | `mealSlot` | string | 필수 | 아침, 점심, 저녁 |
+| Form | `comboId` | string | 필수 | 반찬 조합 ID |
+| File | `beforePhoto` | image file | 필수 | 식사 전 사진 |
+| File | `afterPhoto` | image file | 필수 | 식사 후 사진 |
+
+### 프론트 요청 예시
+
+```ts
+const formData = new FormData();
+formData.append("mealSlot", mealSlot);
+formData.append("comboId", comboId);
+formData.append("beforePhoto", beforeImage);
+formData.append("afterPhoto", afterImage);
+
+await fetch(`${API_URL}/wards/${wardId}/meal-logs`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${accessToken}`,
+  },
+  body: formData,
+});
+```
+
+현재 테스트 로그인에는 JWT가 없으므로 세션에 `accessToken`이 있을 때만 `Authorization` 헤더를 추가합니다.
 
 ---
 
@@ -198,6 +251,7 @@ API 요청 시 위 로컬 데이터를 snake_case JSON 형식으로 변환합니
 | 지자체 및 기관코드 생성 | `POST /api/admin/facilities` | 프론트 `fetch()` 요청 코드 작성됨, 백엔드 구현 여부 미확인 |
 | 관리자 계정 발급 | `POST /api/admin/staff` | 프론트 `fetch()` 요청 코드 작성됨, 백엔드 구현 여부 미확인 |
 | 회원가입 신청 | `POST /api/signup/requests` | 프론트 `fetch()` 요청 코드 작성됨, 백엔드 구현 여부 미확인 |
+| 잔반 이미지 전달 | `POST /wards/{ward_id}/meal-logs` | 프론트 `fetch()` 요청 코드 작성됨, JWT 연결 전 |
 
 ## 관련 프론트 파일
 

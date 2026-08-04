@@ -77,7 +77,7 @@ export function ResidentDetailView({
               {detail.livingAlone && <Badge variant="outline">독거</Badge>}
             </div>
             <span className="text-sm text-muted-foreground">
-              {resident.age}세 · {resident.gender} · {resident.dong} · 수급 구분{" "}
+              {resident.age}세 · {resident.gender} · {resident.address ?? resident.dong} · 수급 구분{" "}
               {detail.supportType} · 담당 {detail.caseWorker}
             </span>
             <span className="text-sm text-muted-foreground">
