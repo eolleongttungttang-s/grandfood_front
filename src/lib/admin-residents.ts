@@ -2,9 +2,13 @@ export type RiskLevel = "고위험" | "주의" | "보통";
 
 export type Resident = {
   id: string;
+  isPrototype?: boolean;
   name: string;
   age: number;
   gender: "여" | "남";
+  facilityCode?: string;
+  address?: string;
+  /** 기존 테스트 데이터 호환용 동 단위 주소 */
   dong: string;
   condition: string;
   lastResponse: string;

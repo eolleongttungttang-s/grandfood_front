@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { readAdminSession } from "@/lib/admin-auth";
+import { getApiUrl } from "@/lib/api";
 
 type MealImage = {
   file: File;
@@ -219,7 +220,7 @@ export function MealImageUpload({
     setIsUploading(true);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const apiUrl = getApiUrl();
       const accessToken = readAdminSession()?.accessToken;
       const response = await fetch(
         `${apiUrl}/wards/${encodeURIComponent(residentId)}/meal-logs`,

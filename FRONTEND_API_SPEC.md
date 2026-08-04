@@ -7,7 +7,8 @@
 ## 공통 설정
 
 - API 주소 환경변수: `NEXT_PUBLIC_API_URL`
-- 로컬 기본 주소: `http://localhost:8000`
+- 개발 환경 기본 주소: `http://localhost:8000`
+- 배포 환경에서는 `NEXT_PUBLIC_API_URL`이 없으면 localhost로 요청하지 않고 설정 오류를 표시합니다.
 - JSON 요청 헤더: `Content-Type: application/json`
 
 ---
@@ -52,11 +53,11 @@ POST /api/admin/facilities
 
 ```text
 기관코드 생성
-→ 브라우저 localStorage에 테스트 데이터 저장
 → POST /api/admin/facilities 요청
+→ 성공 응답을 받은 뒤 브라우저 localStorage와 화면 갱신
 ```
 
-백엔드 요청이 실패해도 로컬 테스트 데이터는 유지됩니다.
+백엔드 요청이 실패하면 로컬 테스트 데이터와 화면을 갱신하지 않습니다.
 
 ### 확인할 사항
 
@@ -109,11 +110,11 @@ POST /api/admin/staff
 ### 현재 프론트 동작
 
 ```text
-관리자 계정 로컬 저장
-→ POST /api/admin/staff 요청
+POST /api/admin/staff 요청
+→ 성공 응답을 받은 뒤 관리자 계정을 로컬 테스트 캐시에 저장
 ```
 
-백엔드 요청이 실패해도 로컬 테스트 계정은 유지됩니다.
+백엔드 요청이 실패하면 로컬 테스트 계정을 생성하지 않습니다.
 
 ### 확인할 사항
 
@@ -187,7 +188,7 @@ POST /api/signup/requests
 }
 ```
 
-API 요청 시 위 로컬 데이터를 snake_case JSON 형식으로 변환합니다. 백엔드 요청이 실패해도 승인 화면 테스트를 위해 로컬 신청 데이터는 유지됩니다.
+API 요청 시 위 로컬 데이터를 snake_case JSON 형식으로 변환합니다. 성공 응답을 받은 뒤에만 승인 화면용 로컬 신청 데이터를 저장합니다.
 
 ---
 

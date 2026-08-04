@@ -22,7 +22,7 @@ export type TestAdminAccount = AdminSession & {
   password: string;
   email: string;
   role: string;
-  facilityId: number;
+  facilityId: string;
 };
 
 export type TestSignupRequest = {
@@ -69,7 +69,7 @@ export function getTestAdminAccounts(): TestAdminAccount[] {
   try {
     return (JSON.parse(saved) as Array<
       Partial<TestAdminAccount> & {
-        municipalityId?: number;
+        municipalityId?: number | string;
         municipalityName?: string;
         position?: string;
       }
@@ -82,7 +82,7 @@ export function getTestAdminAccounts(): TestAdminAccount[] {
         name: item.name,
         email: item.email ?? "",
         role: item.position ?? item.role ?? "담당자",
-        facilityId: item.facilityId ?? item.municipalityId ?? 0,
+        facilityId: String(item.facilityId ?? item.municipalityId ?? ""),
         facilityName: item.facilityName ?? item.municipalityName,
       };
     });

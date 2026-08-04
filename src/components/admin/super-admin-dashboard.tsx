@@ -31,6 +31,7 @@ import {
   saveTestSignupRequests,
   TestSignupRequest,
 } from "@/lib/admin-auth";
+import { postJson } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -41,7 +42,7 @@ import {
 } from "@/components/ui/table";
 
 type Facility = {
-  facilityId: number;
+  facilityId: string;
   facilityName: string;
   facilityType: "MUNICIPALITY";
   department: string;
@@ -92,24 +93,6 @@ function createTemporaryPassword() {
   return `Gf!${Math.random().toString(36).slice(2, 10)}9`;
 }
 
-async function postAdminApi(path: string, payload: Record<string, unknown>) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-  const response = await fetch(`${apiUrl}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const result = (await response.json().catch(() => null)) as
-      | { detail?: string }
-      | null;
-    throw new Error(result?.detail ?? `API 요청에 실패했습니다. (${response.status})`);
-  }
-
-  return response.json().catch(() => null);
-}
-
 function calculateContractEnd(startDate: string, years: number) {
   const [year, month, day] = startDate.split("-").map(Number);
   const endDate = new Date(year + years, month - 1, day);
@@ -147,9 +130,9 @@ export function SuperAdminDashboard() {
 
       try {
         const parsed = (JSON.parse(saved) as Array<
-          Partial<Facility> & { id?: number; name?: string; code?: string }
+          Partial<Facility> & { id?: number | string; name?: string; code?: string }
         >).map((item) => ({
-          facilityId: item.facilityId ?? item.id ?? Date.now(),
+          facilityId: String(item.facilityId ?? item.id ?? Date.now()),
           facilityName: item.facilityName ?? item.name ?? "이름 미지정 기관",
           facilityType: "MUNICIPALITY" as const,
           department: item.department ?? "",
@@ -175,7 +158,8 @@ export function SuperAdminDashboard() {
 
   async function registerFacility(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const name = String(form.get("facilityName") ?? "").trim();
     const department = String(form.get("department") ?? "").trim();
     const contractStartDate = String(form.get("contractStart") ?? "");
@@ -192,26 +176,14 @@ export function SuperAdminDashboard() {
         const sequence = Number(item.facilityCode.split("-").at(-1));
         return Number.isFinite(sequence) ? Math.max(largest, sequence) : largest;
       }, 0) + 1;
-    const nextFacilities = [
-      ...facilities,
-      {
-        facilityId: Date.now(),
-        facilityName: name,
-        facilityType: "MUNICIPALITY" as const,
-        department,
-        facilityCode: createFacilityCode(name, nextSequence),
-        managerAccount: null,
-        status: "준비 중" as const,
-      },
-    ];
-    saveFacilities(nextFacilities);
-    event.currentTarget.reset();
-    setContractStart("");
-    setContractEnd("");
-    const facilityCode = nextFacilities.at(-1)?.facilityCode;
+    const facilityCode = createFacilityCode(name, nextSequence);
 
     try {
-      await postAdminApi("/api/admin/facilities", {
+      const result = await postJson<{
+        facility_id: string;
+        name?: string;
+        facility_code?: string;
+      }>("/api/admin/facilities", {
         name,
         facility_type: "MUNICIPALITY",
         department: department || null,
@@ -219,20 +191,34 @@ export function SuperAdminDashboard() {
         contract_end_date: contractEndDate,
         facility_code: facilityCode,
       });
-      toast.success(`${name}을 등록하고 백엔드에 전송했습니다.`);
+      saveFacilities([
+        ...facilities,
+        {
+          facilityId: result.facility_id,
+          facilityName: result.name ?? name,
+          facilityType: "MUNICIPALITY",
+          department,
+          facilityCode: result?.facility_code ?? facilityCode,
+          managerAccount: null,
+          status: "준비 중",
+        },
+      ]);
+      formElement.reset();
+      setContractStart("");
+      setContractEnd("");
+      toast.success(`${name}을 등록했습니다.`);
     } catch (error) {
-      toast.warning(
-        `${name}은 로컬에 저장했습니다. ${
-          error instanceof Error ? error.message : "백엔드 API에 연결하지 못했습니다."
-        }`,
+      toast.error(
+        error instanceof Error ? error.message : "지자체를 등록하지 못했습니다.",
       );
     }
   }
 
   async function issueManagerAccount(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const facilityId = Number(form.get("facilityId"));
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const facilityId = String(form.get("facilityId") ?? "");
     const managerName = String(form.get("managerName") ?? "").trim();
     const position = String(form.get("position") ?? "").trim();
     const account = String(form.get("managerAccount") ?? "").trim();
@@ -242,29 +228,8 @@ export function SuperAdminDashboard() {
 
     if (!facility || !account || !password) return;
 
-    saveFacilities(
-      facilities.map((item) =>
-        item.facilityId === facilityId
-          ? { ...item, managerAccount: account, status: "활성" as const }
-          : item,
-      ),
-    );
-    setIssuedAccount({ account, password, facilityName: facility.facilityName });
-    saveTestAdminAccount({
-      account,
-      password,
-      accessLevel: "MUNICIPALITY_ADMIN",
-      name: managerName,
-      email,
-      role: position,
-      facilityId: facility.facilityId,
-      facilityName: facility.facilityName,
-    });
-    event.currentTarget.reset();
-    setManagerPassword("");
-
     try {
-      await postAdminApi("/api/admin/staff", {
+      await postJson("/api/admin/staff", {
         facility_id: facility.facilityId,
         facility_name: facility.facilityName,
         facility_code: facility.facilityCode,
@@ -275,12 +240,30 @@ export function SuperAdminDashboard() {
         temporary_password: password,
         access_level: "MUNICIPALITY_ADMIN",
       });
-      toast.success(`${facility.facilityName} 관리자 계정을 백엔드에 전송했습니다.`);
+      saveFacilities(
+        facilities.map((item) =>
+          item.facilityId === facilityId
+            ? { ...item, managerAccount: account, status: "활성" as const }
+            : item,
+        ),
+      );
+      setIssuedAccount({ account, password, facilityName: facility.facilityName });
+      saveTestAdminAccount({
+        account,
+        password,
+        accessLevel: "MUNICIPALITY_ADMIN",
+        name: managerName,
+        email,
+        role: position,
+        facilityId: facility.facilityId,
+        facilityName: facility.facilityName,
+      });
+      formElement.reset();
+      setManagerPassword("");
+      toast.success(`${facility.facilityName} 관리자 계정을 발급했습니다.`);
     } catch (error) {
-      toast.warning(
-        `관리자 계정은 로컬에 저장했습니다. ${
-          error instanceof Error ? error.message : "백엔드 API에 연결하지 못했습니다."
-        }`,
+      toast.error(
+        error instanceof Error ? error.message : "관리자 계정을 발급하지 못했습니다.",
       );
     }
   }
@@ -589,7 +572,7 @@ function SignupApprovalPanel() {
         name: request.name,
         email: request.email,
         role: request.role,
-        facilityId: 0,
+        facilityId: "",
         facilityName: request.facilityName,
       });
     }
