@@ -11,6 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SignupDialog } from "@/components/admin/signup-dialog";
+import {
+  ADMIN_SESSION_KEY,
+  authenticateTestAdmin,
+  createAdminSession,
+} from "@/lib/admin-auth";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -30,8 +35,22 @@ export default function AdminLoginPage() {
       return;
     }
 
-    toast.success("최고관리자 화면으로 이동합니다.");
-    router.push("/admin/residents");
+    const authenticatedAccount = authenticateTestAdmin(account, password);
+    if (!authenticatedAccount) {
+      setError("아이디 또는 비밀번호가 올바르지 않습니다.");
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      ADMIN_SESSION_KEY,
+      createAdminSession(authenticatedAccount),
+    );
+    toast.success(`${authenticatedAccount.name ?? account} 계정으로 로그인했습니다.`);
+    router.push(
+      authenticatedAccount.accessLevel === "SUPER_ADMIN"
+        ? "/admin/dashboard"
+        : "/admin/residents",
+    );
   }
 
   return (

@@ -15,15 +15,43 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  getTestAdminAccounts,
+  getTestSignupRequests,
+  saveTestSignupRequests,
+} from "@/lib/admin-auth";
 
 type SignupDialogProps = {
   open: boolean;
   onClose: () => void;
 };
 
+type StoredFacility = {
+  facilityId: number;
+  facilityCode: string;
+};
+
+async function postSignupRequest(payload: Record<string, unknown>) {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const response = await fetch(`${apiUrl}/api/signup/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as
+      | { detail?: string }
+      | null;
+    throw new Error(result?.detail ?? `API 요청에 실패했습니다. (${response.status})`);
+  }
+
+  return response.json().catch(() => null);
+}
+
 export function SignupDialog({ open, onClose }: SignupDialogProps) {
   const [error, setError] = useState<string | null>(null);
-  const [jobRole, setJobRole] = useState<string>("");
+  const [role, setRole] = useState<string>("");
 
   useEffect(() => {
     if (!open) return;
@@ -43,15 +71,16 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
 
   if (!open) return null;
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
     const form = new FormData(event.currentTarget);
     const password = String(form.get("signupPassword") ?? "");
     const passwordConfirm = String(form.get("passwordConfirm") ?? "");
+    const account = String(form.get("signupAccount") ?? "").trim();
 
-    if (!jobRole) {
+    if (!role) {
       setError("담당 업무를 선택해 주세요.");
       return;
     }
@@ -66,7 +95,63 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
       return;
     }
 
-    toast.success("가입 신청 화면 확인이 완료되었습니다. 저장 기능은 추후 연결됩니다.");
+    const requests = getTestSignupRequests();
+    const accountAlreadyExists =
+      getTestAdminAccounts().some((item) => item.account === account) ||
+      requests.some((item) => item.account === account);
+    if (accountAlreadyExists) {
+      setError("이미 사용 중이거나 승인 대기 중인 아이디입니다.");
+      return;
+    }
+
+    const signupRequest = {
+      id: Date.now(),
+      name: String(form.get("name") ?? "").trim(),
+      account,
+      password,
+      email: String(form.get("email") ?? "").trim(),
+      phone: String(form.get("phone") ?? "").trim(),
+      facilityName: String(form.get("facilityName") ?? "").trim(),
+      facilityCode: String(form.get("facilityCode") ?? "").trim(),
+      workplaceName: String(form.get("workplaceName") ?? "").trim(),
+      role,
+      department: String(form.get("department") ?? "").trim(),
+      requestedAt: new Intl.DateTimeFormat("ko-KR", {
+        dateStyle: "medium",
+      }).format(new Date()),
+    };
+
+    saveTestSignupRequests([...requests, signupRequest]);
+
+    const savedFacilities = window.localStorage.getItem("grandfood_test_facilities");
+    const facilities = savedFacilities
+      ? (JSON.parse(savedFacilities) as StoredFacility[])
+      : [];
+    const facility = facilities.find(
+      (item) => item.facilityCode === signupRequest.facilityCode,
+    );
+
+    try {
+      await postSignupRequest({
+        facility_id: facility?.facilityId ?? null,
+        facility_code: signupRequest.facilityCode,
+        workplace_name: signupRequest.workplaceName,
+        name: signupRequest.name,
+        role: signupRequest.role,
+        department: signupRequest.department || null,
+        account: signupRequest.account,
+        email: signupRequest.email,
+        phone: signupRequest.phone,
+        password: signupRequest.password,
+      });
+      toast.success("회원가입 신청을 백엔드에 전송했습니다.");
+    } catch (error) {
+      toast.warning(
+        `회원가입 신청은 로컬에 저장했습니다. ${
+          error instanceof Error ? error.message : "백엔드 API에 연결하지 못했습니다."
+        }`,
+      );
+    }
     onClose();
   }
 
@@ -103,36 +188,36 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
               소속 정보
             </legend>
             <div className="space-y-2">
-              <Label htmlFor="jurisdiction">관할 지자체</Label>
+              <Label htmlFor="facilityName">관할 지자체</Label>
               <Input
-                id="jurisdiction"
-                name="jurisdiction"
+                id="facilityName"
+                name="facilityName"
                 placeholder="예: 강남구청"
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="organizationCode">기관 코드</Label>
+              <Label htmlFor="facilityCode">기관 코드</Label>
               <Input
-                id="organizationCode"
-                name="organizationCode"
+                id="facilityCode"
+                name="facilityCode"
                 placeholder="발급받은 기관 코드"
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="workplace">근무 기관</Label>
+              <Label htmlFor="workplaceName">근무 기관</Label>
               <Input
-                id="workplace"
-                name="workplace"
+                id="workplaceName"
+                name="workplaceName"
                 placeholder="예: 강남종합사회복지관"
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="jobRole">담당 업무</Label>
-              <Select value={jobRole} onValueChange={(value) => setJobRole(value ?? "")}>
-                <SelectTrigger id="jobRole" className="h-9 w-full">
+              <Label htmlFor="role">담당 업무</Label>
+              <Select value={role} onValueChange={(value) => setRole(value ?? "")}>
+                <SelectTrigger id="role" className="h-9 w-full">
                   <SelectValue placeholder="담당 업무 선택" />
                 </SelectTrigger>
                 <SelectContent>

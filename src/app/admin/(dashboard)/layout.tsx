@@ -1,5 +1,6 @@
 import { AppSidebar } from "@/components/admin/app-sidebar";
-import { SessionTimer } from "@/components/admin/session-timer";
+import { AdminAuthGuard } from "@/components/admin/admin-auth-guard";
+import { AdminHeaderIdentity } from "@/components/admin/admin-header-identity";
 import {
   SidebarInset,
   SidebarProvider,
@@ -13,24 +14,20 @@ export default function AdminDashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
+    <AdminAuthGuard>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4">
           <SidebarTrigger />
           <Separator orientation="vertical" className="h-5" />
           <div className="flex flex-1 items-center justify-between">
-            <span className="text-sm font-semibold text-foreground">
-              강남구청 · 노인복지과
-            </span>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <SessionTimer />
-              <span className="text-foreground">박정현 주무관님, 안녕하세요</span>
-            </div>
+            <AdminHeaderIdentity />
           </div>
         </header>
         {children}
-      </SidebarInset>
-    </SidebarProvider>
+        </SidebarInset>
+      </SidebarProvider>
+    </AdminAuthGuard>
   );
 }
