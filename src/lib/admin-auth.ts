@@ -14,7 +14,9 @@ export type AdminSession = {
   accessLevel: AccessLevel;
   accessToken?: string;
   name?: string;
+  facilityId?: string;
   facilityName?: string;
+  facilityCode?: string;
   role?: string;
 };
 
@@ -84,6 +86,7 @@ export function getTestAdminAccounts(): TestAdminAccount[] {
         role: item.position ?? item.role ?? "담당자",
         facilityId: String(item.facilityId ?? item.municipalityId ?? ""),
         facilityName: item.facilityName ?? item.municipalityName,
+        facilityCode: item.facilityCode,
       };
     });
   } catch {
@@ -159,7 +162,9 @@ export function authenticateTestAdmin(account: string, password: string) {
     account: issuedAccount.account,
     accessLevel: issuedAccount.accessLevel,
     name: issuedAccount.name,
+    facilityId: issuedAccount.facilityId,
     facilityName: issuedAccount.facilityName,
+    facilityCode: issuedAccount.facilityCode,
     role: issuedAccount.role,
   } satisfies AdminSession;
 }

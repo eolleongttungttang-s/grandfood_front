@@ -1,5 +1,7 @@
 export type RiskLevel = "고위험" | "주의" | "보통";
 
+export const RESIDENTS_STORAGE_KEY = "grandfood_test_residents";
+
 export type Resident = {
   id: string;
   isPrototype?: boolean;

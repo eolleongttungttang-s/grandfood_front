@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Bell,
+  ChartNoAxesCombined,
   LayoutDashboard,
   LogOut,
   UsersRound,
@@ -32,7 +34,9 @@ import {
 } from "@/lib/admin-auth";
 
 const NAV_ITEMS = [
+  { label: "공지사항", href: "/admin/notices", icon: Bell },
   { label: "대상자 명단", href: "/admin/residents", icon: UsersRound },
+  { label: "통계", href: "/admin/statistics", icon: ChartNoAxesCombined },
 ];
 
 export function AppSidebar() {

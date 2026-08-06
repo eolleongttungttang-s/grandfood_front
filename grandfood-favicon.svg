@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="32" height="32" role="img" aria-label="Grandfood">
+  <title>Grandfood</title>
+  <rect width="100" height="100" rx="23.6" fill="#F7F2EB"></rect>
+  <path d="M12 58 Q32 58 38 36 T62 46 Q72 58 88 58" fill="none" stroke="#B96843" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"></path>
+  <path d="M16 70 H84 A34 34 0 0 1 16 70 Z" fill="#2E241F"></path>
+</svg>
