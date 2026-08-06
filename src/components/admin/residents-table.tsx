@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { ArrowUpDown, Download, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { Resident, RiskLevel } from "@/lib/admin-residents";
+import {
+  Resident,
+  RESIDENTS_STORAGE_KEY,
+  RiskLevel,
+} from "@/lib/admin-residents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,8 +43,6 @@ const RESPONSE_TONE_CLASS: Record<Resident["lastResponseTone"], string> = {
 };
 
 const PAGE_SIZE = 8;
-const TEST_RESIDENTS_STORAGE_KEY = "grandfood_test_residents";
-
 type SortKey = "no" | "age" | "risk";
 
 const RISK_ORDER: Record<RiskLevel, number> = { 고위험: 0, 주의: 1, 보통: 2 };
@@ -63,7 +65,7 @@ export function ResidentsTable({
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      const saved = window.localStorage.getItem(TEST_RESIDENTS_STORAGE_KEY);
+      const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
       if (!saved) return;
 
       try {
@@ -73,7 +75,7 @@ export function ResidentsTable({
         }));
         setResidents([...data, ...localResidents]);
       } catch {
-        window.localStorage.removeItem(TEST_RESIDENTS_STORAGE_KEY);
+        window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
       }
     }, 0);
 
@@ -108,7 +110,7 @@ export function ResidentsTable({
     );
     const nextLocalResidents = [...localResidents, resident];
     window.localStorage.setItem(
-      TEST_RESIDENTS_STORAGE_KEY,
+      RESIDENTS_STORAGE_KEY,
       JSON.stringify(nextLocalResidents),
     );
     setResidents([...data, ...nextLocalResidents]);

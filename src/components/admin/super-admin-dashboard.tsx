@@ -31,7 +31,7 @@ import {
   saveTestSignupRequests,
   TestSignupRequest,
 } from "@/lib/admin-auth";
-import { postJson } from "@/lib/api";
+import { getJson, postJson } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -51,9 +51,34 @@ type Facility = {
   status: "활성" | "준비 중";
 };
 
+type FacilityApiResponse = {
+  facility_id: string;
+  name: string;
+  facility_type: string;
+  department: string | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  facility_code: string;
+  created_at: string;
+};
+
+type StaffApiResponse = {
+  staff_id: string;
+  facility_id: string | null;
+  facility_name: string | null;
+  facility_code: string | null;
+  name: string;
+  role: string;
+  account: string;
+  email: string | null;
+  access_level: string;
+};
+
+type IssuedStaffApiResponse = StaffApiResponse & {
+  temporary_password: string;
+};
+
 const INITIAL_FACILITIES: Facility[] = [];
-const FACILITIES_STORAGE_KEY = "grandfood_test_facilities";
-const LEGACY_MUNICIPALITIES_STORAGE_KEY = "grandfood_test_municipalities";
 
 const MUNICIPALITY_PREFIXES: Record<string, string> = {
   강남구청: "GN",
@@ -89,10 +114,6 @@ function createFacilityCode(name: string, sequence: number) {
   return `${prefix || "GF"}-${String(sequence).padStart(4, "0")}`;
 }
 
-function createTemporaryPassword() {
-  return `Gf!${Math.random().toString(36).slice(2, 10)}9`;
-}
-
 function calculateContractEnd(startDate: string, years: number) {
   const [year, month, day] = startDate.split("-").map(Number);
   const endDate = new Date(year + years, month - 1, day);
@@ -110,6 +131,8 @@ export function SuperAdminDashboard() {
   const section =
     searchParams.get("section") === "approvals" ? "approvals" : "registration";
   const [facilities, setFacilities] = useState(INITIAL_FACILITIES);
+  const [facilitiesLoading, setFacilitiesLoading] = useState(true);
+  const [facilitiesError, setFacilitiesError] = useState<string | null>(null);
   const activePanel =
     searchParams.get("panel") === "account" ? "account" : "facility";
   const [issuedAccount, setIssuedAccount] = useState<{
@@ -119,41 +142,60 @@ export function SuperAdminDashboard() {
   } | null>(null);
   const [contractStart, setContractStart] = useState("");
   const [contractEnd, setContractEnd] = useState("");
-  const [managerPassword, setManagerPassword] = useState("");
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      const saved =
-        window.localStorage.getItem(FACILITIES_STORAGE_KEY) ??
-        window.localStorage.getItem(LEGACY_MUNICIPALITIES_STORAGE_KEY);
-      if (!saved) return;
+    let cancelled = false;
+
+    async function loadFacilities() {
+      setFacilitiesLoading(true);
+      setFacilitiesError(null);
 
       try {
-        const parsed = (JSON.parse(saved) as Array<
-          Partial<Facility> & { id?: number | string; name?: string; code?: string }
-        >).map((item) => ({
-          facilityId: String(item.facilityId ?? item.id ?? Date.now()),
-          facilityName: item.facilityName ?? item.name ?? "이름 미지정 기관",
-          facilityType: "MUNICIPALITY" as const,
-          department: item.department ?? "",
-          facilityCode: item.facilityCode ?? item.code ?? "GF-0000",
-          managerAccount: item.managerAccount ?? null,
-          status: item.status ?? "준비 중",
-        }));
-        setFacilities(parsed);
-        window.localStorage.setItem(FACILITIES_STORAGE_KEY, JSON.stringify(parsed));
-      } catch {
-        window.localStorage.removeItem(FACILITIES_STORAGE_KEY);
-        window.localStorage.removeItem(LEGACY_MUNICIPALITIES_STORAGE_KEY);
-      }
-    }, 0);
+        const [facilityRows, staffRows] = await Promise.all([
+          getJson<FacilityApiResponse[]>("/api/admin/facilities"),
+          getJson<StaffApiResponse[]>("/api/admin/staff"),
+        ]);
+        if (cancelled) return;
 
-    return () => window.clearTimeout(timeoutId);
+        const managerByFacility = new Map<string, StaffApiResponse>();
+        for (const staff of staffRows) {
+          if (staff.facility_id && !managerByFacility.has(staff.facility_id)) {
+            managerByFacility.set(staff.facility_id, staff);
+          }
+        }
+
+        setFacilities(
+          facilityRows.map((facility) => {
+            const manager = managerByFacility.get(facility.facility_id);
+            return {
+              facilityId: facility.facility_id,
+              facilityName: facility.name,
+              facilityType: "MUNICIPALITY" as const,
+              department: facility.department ?? "",
+              facilityCode: facility.facility_code,
+              managerAccount: manager?.account ?? null,
+              status: manager ? ("활성" as const) : ("준비 중" as const),
+            };
+          }),
+        );
+      } catch (error) {
+        if (cancelled) return;
+        setFacilitiesError(
+          error instanceof Error ? error.message : "현황을 불러오지 못했습니다.",
+        );
+      } finally {
+        if (!cancelled) setFacilitiesLoading(false);
+      }
+    }
+
+    void loadFacilities();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function saveFacilities(next: Facility[]) {
     setFacilities(next);
-    window.localStorage.setItem(FACILITIES_STORAGE_KEY, JSON.stringify(next));
   }
 
   async function registerFacility(event: React.FormEvent<HTMLFormElement>) {
@@ -223,13 +265,12 @@ export function SuperAdminDashboard() {
     const position = String(form.get("position") ?? "").trim();
     const account = String(form.get("managerAccount") ?? "").trim();
     const email = String(form.get("managerEmail") ?? "").trim();
-    const password = String(form.get("managerPassword") ?? "");
     const facility = facilities.find((item) => item.facilityId === facilityId);
 
-    if (!facility || !account || !password) return;
+    if (!facility || !account) return;
 
     try {
-      await postJson("/api/admin/staff", {
+      const result = await postJson<IssuedStaffApiResponse>("/api/admin/staff", {
         facility_id: facility.facilityId,
         facility_name: facility.facilityName,
         facility_code: facility.facilityCode,
@@ -237,7 +278,6 @@ export function SuperAdminDashboard() {
         role: position,
         account,
         email,
-        temporary_password: password,
         access_level: "MUNICIPALITY_ADMIN",
       });
       saveFacilities(
@@ -247,19 +287,23 @@ export function SuperAdminDashboard() {
             : item,
         ),
       );
-      setIssuedAccount({ account, password, facilityName: facility.facilityName });
+      setIssuedAccount({
+        account: result.account,
+        password: result.temporary_password,
+        facilityName: result.facility_name ?? facility.facilityName,
+      });
       saveTestAdminAccount({
-        account,
-        password,
+        account: result.account,
+        password: result.temporary_password,
         accessLevel: "MUNICIPALITY_ADMIN",
         name: managerName,
         email,
         role: position,
         facilityId: facility.facilityId,
         facilityName: facility.facilityName,
+        facilityCode: facility.facilityCode,
       });
       formElement.reset();
-      setManagerPassword("");
       toast.success(`${facility.facilityName} 관리자 계정을 발급했습니다.`);
     } catch (error) {
       toast.error(
@@ -451,32 +495,10 @@ export function SuperAdminDashboard() {
                   <Label htmlFor="managerEmail">업무용 이메일</Label>
                   <Input id="managerEmail" name="managerEmail" type="email" placeholder="name@example.go.kr" required />
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <Label htmlFor="managerPassword">임시 비밀번호</Label>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setManagerPassword(createTemporaryPassword())}
-                    >
-                      자동 생성
-                    </Button>
-                  </div>
-                  <Input
-                    id="managerPassword"
-                    name="managerPassword"
-                    type="text"
-                    value={managerPassword}
-                    onChange={(event) => setManagerPassword(event.target.value)}
-                    placeholder="임시 비밀번호 입력 또는 자동 생성"
-                    minLength={8}
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    최초 로그인 시 비밀번호를 변경하도록 안내해 주세요.
-                  </p>
-                </div>
+                <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  임시 비밀번호는 계정 발급 시 서버에서 안전하게 생성되며, 발급 직후 한 번만
+                  표시됩니다.
+                </p>
                 <Button type="submit" className="w-full">
                   <KeyRound /> 관리자 계정 발급
                 </Button>
@@ -514,7 +536,27 @@ export function SuperAdminDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {facilities.length === 0 && (
+                {facilitiesLoading && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="h-32 text-center text-muted-foreground"
+                    >
+                      지자체 및 계정 현황을 불러오는 중입니다.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!facilitiesLoading && facilitiesError && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="h-32 text-center text-destructive"
+                    >
+                      {facilitiesError}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!facilitiesLoading && !facilitiesError && facilities.length === 0 && (
                   <TableRow>
                     <TableCell
                       colSpan={5}
