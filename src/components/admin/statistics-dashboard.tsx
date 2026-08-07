@@ -1,158 +1,357 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { MapPinned, UsersRound } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  Activity,
+  Building2,
+  ChevronRight,
+  CircleCheckBig,
+  HeartPulse,
+  MapPinned,
+  TriangleAlert,
+  UtensilsCrossed,
+  UsersRound,
+} from "lucide-react";
 
 import { PageHeader } from "@/components/admin/page-header";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
-  Resident,
-  RESIDENTS,
-  RESIDENTS_STORAGE_KEY,
-} from "@/lib/admin-residents";
-import { AdminSession, readAdminSession } from "@/lib/admin-auth";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
-type RegionStat = {
+type CareFacility = {
+  id: string;
   region: string;
-  total: number;
+  municipality: string;
+  municipalityCode: string;
+  name: string;
+  type: "요양원" | "사회복지기관";
+  residents: number;
+  mealRecordRate: number;
+  averageIntakeRate: number;
+  lowIntakeResidents: number;
+  unresolvedAlerts: number;
 };
 
-function getResidentRegion(resident: Resident) {
-  const address = resident.address?.trim();
-  if (!address) return resident.dong || "지역 미지정";
+const CARE_FACILITIES: CareFacility[] = [
+  { id: "seoul-gn-01", region: "서울특별시", municipality: "강남구", municipalityCode: "GN-0001", name: "강남실버요양원", type: "요양원", residents: 86, mealRecordRate: 96, averageIntakeRate: 82, lowIntakeResidents: 5, unresolvedAlerts: 1 },
+  { id: "seoul-gn-02", region: "서울특별시", municipality: "강남구", municipalityCode: "GN-0001", name: "늘봄노인복지관", type: "사회복지기관", residents: 64, mealRecordRate: 91, averageIntakeRate: 76, lowIntakeResidents: 8, unresolvedAlerts: 3 },
+  { id: "seoul-mp-01", region: "서울특별시", municipality: "마포구", municipalityCode: "MP-0002", name: "마포행복요양원", type: "요양원", residents: 72, mealRecordRate: 94, averageIntakeRate: 79, lowIntakeResidents: 6, unresolvedAlerts: 2 },
+  { id: "seoul-mp-02", region: "서울특별시", municipality: "마포구", municipalityCode: "MP-0002", name: "마포어르신돌봄센터", type: "사회복지기관", residents: 58, mealRecordRate: 87, averageIntakeRate: 73, lowIntakeResidents: 10, unresolvedAlerts: 4 },
+  { id: "gyeonggi-sn-01", region: "경기도", municipality: "성남시", municipalityCode: "SN-0003", name: "분당사랑요양원", type: "요양원", residents: 104, mealRecordRate: 98, averageIntakeRate: 85, lowIntakeResidents: 4, unresolvedAlerts: 1 },
+  { id: "gyeonggi-sn-02", region: "경기도", municipality: "성남시", municipalityCode: "SN-0003", name: "성남종합사회복지관", type: "사회복지기관", residents: 93, mealRecordRate: 90, averageIntakeRate: 77, lowIntakeResidents: 11, unresolvedAlerts: 5 },
+  { id: "gyeonggi-sw-01", region: "경기도", municipality: "수원시", municipalityCode: "SW-0004", name: "수원효원요양원", type: "요양원", residents: 79, mealRecordRate: 92, averageIntakeRate: 80, lowIntakeResidents: 7, unresolvedAlerts: 2 },
+  { id: "gyeonggi-sw-02", region: "경기도", municipality: "수원시", municipalityCode: "SW-0004", name: "팔달노인복지관", type: "사회복지기관", residents: 67, mealRecordRate: 88, averageIntakeRate: 74, lowIntakeResidents: 9, unresolvedAlerts: 3 },
+];
 
-  const parts = address.split(/\s+/).filter(Boolean);
-  const district = parts.find((part) => /[시군구]$/.test(part));
-  const neighborhood = parts.find((part) => /[읍면동]$/.test(part));
-  return neighborhood ?? district ?? parts[0] ?? "지역 미지정";
-}
+const selectClassName =
+  "h-10 rounded-lg border border-input bg-background px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-export function StatisticsDashboard() {
-  const [residents, setResidents] = useState<Resident[]>(RESIDENTS);
-  const [session, setSession] = useState<AdminSession | null>(null);
-  const [sessionLoaded, setSessionLoaded] = useState(false);
+export function StatisticsDashboard({
+  facilities = CARE_FACILITIES,
+}: {
+  facilities?: CareFacility[];
+}) {
+  const [region, setRegion] = useState("전체");
+  const [municipality, setMunicipality] = useState("전체");
+  const [facilityType, setFacilityType] = useState("전체");
+  const [selectedFacilityId, setSelectedFacilityId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setSession(readAdminSession());
-      setSessionLoaded(true);
-      const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
-      if (!saved) return;
+  const regions = useMemo(
+    () => [...new Set(facilities.map((facility) => facility.region))],
+    [facilities],
+  );
+  const municipalities = useMemo(
+    () => [
+      ...new Set(
+        facilities.filter(
+          (facility) => region === "전체" || facility.region === region,
+        ).map((facility) => facility.municipality),
+      ),
+    ],
+    [facilities, region],
+  );
 
-      try {
-        const registeredResidents = JSON.parse(saved) as Resident[];
-        setResidents([...RESIDENTS, ...registeredResidents]);
-      } catch {
-        window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
-      }
-    }, 0);
+  const filteredFacilities = useMemo(
+    () =>
+      facilities.filter(
+        (facility) =>
+          (region === "전체" || facility.region === region) &&
+          (municipality === "전체" || facility.municipality === municipality) &&
+          (facilityType === "전체" || facility.type === facilityType),
+      ),
+    [facilities, facilityType, municipality, region],
+  );
 
-    return () => window.clearTimeout(timeoutId);
-  }, []);
-
-  const visibleResidents = useMemo(() => {
-    if (session?.accessLevel === "SUPER_ADMIN") return residents;
-    if (!session?.facilityCode) return [];
-    return residents.filter(
-      (resident) => resident.facilityCode === session.facilityCode,
+  const totals = useMemo(() => {
+    const residents = filteredFacilities.reduce(
+      (sum, facility) => sum + facility.residents,
+      0,
     );
-  }, [residents, session]);
+    const weightedAverage = (key: "mealRecordRate" | "averageIntakeRate") =>
+      residents
+        ? Math.round(
+            filteredFacilities.reduce(
+              (sum, facility) => sum + facility[key] * facility.residents,
+              0,
+            ) / residents,
+          )
+        : 0;
 
-  const regionStats = useMemo(() => {
-    const grouped = new Map<string, RegionStat>();
+    return {
+      residents,
+      mealRecordRate: weightedAverage("mealRecordRate"),
+      averageIntakeRate: weightedAverage("averageIntakeRate"),
+      lowIntakeResidents: filteredFacilities.reduce(
+        (sum, facility) => sum + facility.lowIntakeResidents,
+        0,
+      ),
+      unresolvedAlerts: filteredFacilities.reduce(
+        (sum, facility) => sum + facility.unresolvedAlerts,
+        0,
+      ),
+    };
+  }, [filteredFacilities]);
 
-    for (const resident of visibleResidents) {
-      const region = getResidentRegion(resident);
-      const current = grouped.get(region) ?? {
-        region,
-        total: 0,
+  const municipalityStats = useMemo(() => {
+    const grouped = new Map<string, { residents: number; lowIntake: number; alerts: number }>();
+    for (const facility of filteredFacilities) {
+      const current = grouped.get(facility.municipality) ?? {
+        residents: 0,
+        lowIntake: 0,
+        alerts: 0,
       };
-      current.total += 1;
-      grouped.set(region, current);
+      current.residents += facility.residents;
+      current.lowIntake += facility.lowIntakeResidents;
+      current.alerts += facility.unresolvedAlerts;
+      grouped.set(facility.municipality, current);
     }
+    return [...grouped.entries()].sort((a, b) => b[1].residents - a[1].residents);
+  }, [filteredFacilities]);
 
-    return [...grouped.values()].sort(
-      (a, b) => b.total - a.total || a.region.localeCompare(b.region, "ko"),
-    );
-  }, [visibleResidents]);
+  const selectedFacility =
+    filteredFacilities.find((facility) => facility.id === selectedFacilityId) ??
+    filteredFacilities[0] ??
+    null;
 
-  if (!sessionLoaded) {
-    return (
-      <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
-        <PageHeader title="대상자 지역 통계" />
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            권한별 통계를 불러오는 중입니다.
-          </CardContent>
-        </Card>
-      </main>
-    );
+  function resetFilters() {
+    setRegion("전체");
+    setMunicipality("전체");
+    setFacilityType("전체");
+    setSelectedFacilityId(null);
   }
 
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
       <PageHeader
-        title="대상자 지역 통계"
-        description={
-          session?.accessLevel === "SUPER_ADMIN"
-            ? "전체 지자체의 지역별 관리 대상자 현황입니다."
-            : `${session?.facilityName ?? "소속 지자체"}의 관리 대상자 현황입니다.`
-        }
+        title="통합 급식 모니터링"
+        description="지역부터 산하 요양원·복지기관까지 식사 기록과 건강 이상 징후를 한눈에 확인합니다."
+        action={<Badge variant="secondary">오늘 14:30 기준</Badge>}
       />
 
-      <section className="grid gap-4 sm:grid-cols-2">
+      <Card className="border-primary/15 bg-gradient-to-r from-primary/5 via-card to-card">
+        <CardContent className="flex flex-wrap items-end gap-3 py-1">
+          <label className="flex min-w-40 flex-1 flex-col gap-1.5 text-xs font-semibold text-muted-foreground">
+            지역
+            <select
+              className={selectClassName}
+              value={region}
+              onChange={(event) => {
+                setRegion(event.target.value);
+                setMunicipality("전체");
+                setSelectedFacilityId(null);
+              }}
+            >
+              <option>전체</option>
+              {regions.map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="flex min-w-40 flex-1 flex-col gap-1.5 text-xs font-semibold text-muted-foreground">
+            지자체
+            <select
+              className={selectClassName}
+              value={municipality}
+              onChange={(event) => {
+                setMunicipality(event.target.value);
+                setSelectedFacilityId(null);
+              }}
+            >
+              <option>전체</option>
+              {municipalities.map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="flex min-w-40 flex-1 flex-col gap-1.5 text-xs font-semibold text-muted-foreground">
+            시설 유형
+            <select
+              className={selectClassName}
+              value={facilityType}
+              onChange={(event) => {
+                setFacilityType(event.target.value);
+                setSelectedFacilityId(null);
+              }}
+            >
+              <option>전체</option>
+              <option>요양원</option>
+              <option>사회복지기관</option>
+            </select>
+          </label>
+          <Button type="button" variant="outline" onClick={resetFilters}>
+            필터 초기화
+          </Button>
+        </CardContent>
+      </Card>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
-          { label: "전체 관리 대상자", value: visibleResidents.length, unit: "명", icon: UsersRound },
-          { label: "관리 지역", value: regionStats.length, unit: "곳", icon: MapPinned },
-        ].map(({ label, value, unit, icon: Icon }) => (
+          { label: "산하 시설", value: filteredFacilities.length, unit: "곳", icon: Building2, tone: "text-sky-600 bg-sky-50" },
+          { label: "관리 어르신", value: totals.residents, unit: "명", icon: UsersRound, tone: "text-indigo-600 bg-indigo-50" },
+          { label: "식사 기록률", value: totals.mealRecordRate, unit: "%", icon: CircleCheckBig, tone: "text-emerald-600 bg-emerald-50" },
+          { label: "평균 섭취율", value: totals.averageIntakeRate, unit: "%", icon: UtensilsCrossed, tone: "text-amber-600 bg-amber-50" },
+          { label: "미조치 알림", value: totals.unresolvedAlerts, unit: "건", icon: TriangleAlert, tone: "text-rose-600 bg-rose-50" },
+        ].map(({ label, value, unit, icon: Icon, tone }) => (
           <Card key={label}>
             <CardContent className="flex items-center justify-between py-1">
               <div>
                 <p className="text-sm text-muted-foreground">{label}</p>
                 <p className="mt-1 text-2xl font-extrabold">
                   {value.toLocaleString()}
-                  <span className="ml-1 text-sm font-semibold text-muted-foreground">{unit}</span>
+                  <span className="ml-1 text-xs font-semibold text-muted-foreground">{unit}</span>
                 </p>
               </div>
-              <div className="rounded-xl bg-primary/10 p-3 text-primary">
-                <Icon className="h-5 w-5" />
-              </div>
+              <div className={`rounded-xl p-3 ${tone}`}><Icon className="h-5 w-5" /></div>
             </CardContent>
           </Card>
         ))}
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>지역별 관리 대상자</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {regionStats.length === 0 ? (
-            <p className="py-10 text-center text-muted-foreground">
-              등록된 대상자가 없습니다.
-            </p>
-          ) : (
-            regionStats.map((item) => {
-              const percentage = visibleResidents.length
-                ? Math.round((item.total / visibleResidents.length) * 100)
+      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><MapPinned className="h-5 w-5 text-primary" /> 지자체별 관리 규모</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {municipalityStats.length === 0 && (
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                집계할 지자체 데이터가 없습니다.
+              </p>
+            )}
+            {municipalityStats.map(([name, stat]) => {
+              const percentage = totals.residents
+                ? Math.round((stat.residents / totals.residents) * 100)
                 : 0;
               return (
-                <div key={item.region} className="space-y-2 rounded-xl border p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                <div key={name} className="space-y-2">
+                  <div className="flex items-center justify-between gap-4 text-sm">
                     <div>
-                      <p className="font-bold">{item.region}</p>
-                      <p className="text-sm text-muted-foreground">
-                        전체 대상자의 {percentage}%
-                      </p>
+                      <span className="font-bold">{name}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">저섭취 {stat.lowIntake}명 · 미조치 {stat.alerts}건</span>
                     </div>
-                    <p className="text-xl font-extrabold">{item.total}명</p>
+                    <span className="font-extrabold">{stat.residents}명</span>
                   </div>
                   <Progress value={percentage} />
                 </div>
               );
-            })
-          )}
+            })}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><HeartPulse className="h-5 w-5 text-primary" /> 선택 시설 상세</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {selectedFacility ? (
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl bg-muted/60 p-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-extrabold">{selectedFacility.name}</h3>
+                      <Badge variant="outline">{selectedFacility.type}</Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">{selectedFacility.region} {selectedFacility.municipality} · {selectedFacility.municipalityCode}</p>
+                  </div>
+                  <Button size="sm" variant="outline">시설 상세 <ChevronRight /></Button>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    ["관리 어르신", `${selectedFacility.residents}명`],
+                    ["식사 기록률", `${selectedFacility.mealRecordRate}%`],
+                    ["평균 섭취율", `${selectedFacility.averageIntakeRate}%`],
+                    ["저섭취 위험", `${selectedFacility.lowIntakeResidents}명`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-xl border p-3">
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className="mt-1 text-lg font-extrabold">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
+                  <div className="flex items-center gap-2 font-bold"><Activity className="h-4 w-4" /> 확인이 필요한 건강 알림</div>
+                  <p className="mt-1 text-sm">미조치 알림 {selectedFacility.unresolvedAlerts}건 · 최근 3일 연속 저섭취 대상자를 우선 확인하세요.</p>
+                </div>
+              </div>
+            ) : (
+              <p className="py-12 text-center text-muted-foreground">조건에 해당하는 시설이 없습니다.</p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>산하 시설별 운영 현황</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>지역·지자체</TableHead>
+                <TableHead>시설</TableHead>
+                <TableHead>유형</TableHead>
+                <TableHead className="text-right">어르신</TableHead>
+                <TableHead className="text-right">기록률</TableHead>
+                <TableHead className="text-right">섭취율</TableHead>
+                <TableHead className="text-right">저섭취</TableHead>
+                <TableHead className="text-right">미조치</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredFacilities.map((facility) => (
+                <TableRow
+                  key={facility.id}
+                  data-state={selectedFacility?.id === facility.id ? "selected" : undefined}
+                >
+                  <TableCell><p className="font-semibold">{facility.municipality}</p><p className="text-xs text-muted-foreground">{facility.region}</p></TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      className="font-bold underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setSelectedFacilityId(facility.id)}
+                    >
+                      {facility.name}
+                    </button>
+                  </TableCell>
+                  <TableCell><Badge variant="outline">{facility.type}</Badge></TableCell>
+                  <TableCell className="text-right">{facility.residents}명</TableCell>
+                  <TableCell className="text-right font-semibold">{facility.mealRecordRate}%</TableCell>
+                  <TableCell className="text-right font-semibold">{facility.averageIntakeRate}%</TableCell>
+                  <TableCell className="text-right">{facility.lowIntakeResidents}명</TableCell>
+                  <TableCell className="text-right"><Badge variant={facility.unresolvedAlerts >= 4 ? "destructive" : "secondary"}>{facility.unresolvedAlerts}건</Badge></TableCell>
+                </TableRow>
+              ))}
+              {filteredFacilities.length === 0 && (
+                <TableRow><TableCell colSpan={8} className="h-32 text-center text-muted-foreground">조건에 해당하는 시설이 없습니다.</TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </main>

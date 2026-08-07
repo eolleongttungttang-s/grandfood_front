@@ -116,7 +116,6 @@ export function NoticesPanel() {
         title: String(form.get("noticeTitle") ?? "").trim(),
         content: String(form.get("noticeContent") ?? "").trim(),
         facility_id: targetFacilityId || null,
-        created_by: null,
       });
       setNotices((current) => [created, ...current]);
       setDialogOpen(false);
