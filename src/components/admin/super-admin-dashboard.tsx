@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Building2,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   KeyRound,
   Plus,
   ShieldCheck,
@@ -25,13 +27,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  getTestSignupRequests,
-  saveTestAdminAccount,
-  saveTestSignupRequests,
-  TestSignupRequest,
-} from "@/lib/admin-auth";
-import { getJson, postJson } from "@/lib/api";
+import { getJson, patchJson, postJson } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -50,6 +46,46 @@ type Facility = {
   managerAccount: string | null;
   status: "활성" | "준비 중";
 };
+
+type CareFacility = {
+  name: string;
+  type: "요양원" | "사회복지기관";
+  code: string;
+  status: "운영 중";
+};
+
+function getExampleCareFacilities(facility: Facility): CareFacility[] {
+  const districtName = facility.facilityName.replace(/청$/, "");
+  return [
+    {
+      name: `${districtName} 실버요양원`,
+      type: "요양원",
+      code: `${facility.facilityCode}-N001`,
+      status: "운영 중",
+    },
+    {
+      name: `${districtName} 종합사회복지관`,
+      type: "사회복지기관",
+      code: `${facility.facilityCode}-W001`,
+      status: "운영 중",
+    },
+  ];
+}
+
+function createCareFacilityCode(
+  municipalityCode: string,
+  type: CareFacility["type"],
+  existingFacilities: CareFacility[],
+) {
+  const typePrefix = type === "요양원" ? "N" : "W";
+  const largestSequence = existingFacilities.reduce((largest, facility) => {
+    const suffix = facility.code.split("-").at(-1) ?? "";
+    if (!suffix.startsWith(typePrefix)) return largest;
+    const sequence = Number(suffix.slice(1));
+    return Number.isFinite(sequence) ? Math.max(largest, sequence) : largest;
+  }, 0);
+  return `${municipalityCode}-${typePrefix}${String(largestSequence + 1).padStart(3, "0")}`;
+}
 
 type FacilityApiResponse = {
   facility_id: string;
@@ -76,6 +112,22 @@ type StaffApiResponse = {
 
 type IssuedStaffApiResponse = StaffApiResponse & {
   temporary_password: string;
+};
+
+type SignupRequestApiResponse = {
+  request_id: string;
+  facility_id: string;
+  facility_name: string | null;
+  facility_code: string | null;
+  workplace_name: string;
+  name: string;
+  role: string;
+  department: string | null;
+  account: string | null;
+  email: string | null;
+  phone: string | null;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
 };
 
 const INITIAL_FACILITIES: Facility[] = [];
@@ -142,6 +194,10 @@ export function SuperAdminDashboard() {
   } | null>(null);
   const [contractStart, setContractStart] = useState("");
   const [contractEnd, setContractEnd] = useState("");
+  const [expandedFacilityId, setExpandedFacilityId] = useState<string | null>(null);
+  const [addedCareFacilities, setAddedCareFacilities] = useState<
+    Record<string, CareFacility[]>
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -291,17 +347,6 @@ export function SuperAdminDashboard() {
         account: result.account,
         password: result.temporary_password,
         facilityName: result.facility_name ?? facility.facilityName,
-      });
-      saveTestAdminAccount({
-        account: result.account,
-        password: result.temporary_password,
-        accessLevel: "MUNICIPALITY_ADMIN",
-        name: managerName,
-        email,
-        role: position,
-        facilityId: facility.facilityId,
-        facilityName: facility.facilityName,
-        facilityCode: facility.facilityCode,
       });
       formElement.reset();
       toast.success(`${facility.facilityName} 관리자 계정을 발급했습니다.`);
@@ -566,19 +611,87 @@ export function SuperAdminDashboard() {
                     </TableCell>
                   </TableRow>
                 )}
-                {facilities.map((item) => (
-                  <TableRow key={item.facilityId}>
-                    <TableCell className="font-semibold">{item.facilityName}</TableCell>
-                    <TableCell>{item.department || "미지정"}</TableCell>
-                    <TableCell className="font-mono">{item.facilityCode}</TableCell>
-                    <TableCell>{item.managerAccount ?? "미발급"}</TableCell>
-                    <TableCell>
-                      <Badge variant={item.status === "활성" ? "default" : "secondary"}>
-                        {item.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {facilities.map((item) => {
+                  const isExpanded = expandedFacilityId === item.facilityId;
+                  const careFacilities = [
+                    ...getExampleCareFacilities(item),
+                    ...(addedCareFacilities[item.facilityId] ?? []),
+                  ];
+                  return (
+                    <Fragment key={item.facilityId}>
+                      <TableRow>
+                        <TableCell>
+                          <button
+                            type="button"
+                            className="flex items-center gap-2 font-semibold hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-expanded={isExpanded}
+                            onClick={() =>
+                              setExpandedFacilityId(isExpanded ? null : item.facilityId)
+                            }
+                          >
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            {item.facilityName}
+                          </button>
+                        </TableCell>
+                        <TableCell>{item.department || "미지정"}</TableCell>
+                        <TableCell className="font-mono">{item.facilityCode}</TableCell>
+                        <TableCell>{item.managerAccount ?? "미발급"}</TableCell>
+                        <TableCell>
+                          <Badge variant={item.status === "활성" ? "default" : "secondary"}>
+                            {item.status}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableCell colSpan={5} className="p-4 sm:pl-10">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-bold">산하 시설</p>
+                                <p className="text-xs text-muted-foreground">{item.facilityName} 기관코드로 등록된 시설입니다.</p>
+                              </div>
+                              <Badge variant="outline">{careFacilities.length}곳</Badge>
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              {careFacilities.map((careFacility) => (
+                                <div key={careFacility.code} className="rounded-xl border bg-card p-4 shadow-sm">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex min-w-0 items-start gap-3">
+                                      <div className="rounded-lg bg-primary/10 p-2 text-primary"><Building2 className="h-4 w-4" /></div>
+                                      <div className="min-w-0">
+                                        <p className="truncate font-bold">{careFacility.name}</p>
+                                        <p className="mt-1 font-mono text-xs text-muted-foreground">{careFacility.code}</p>
+                                      </div>
+                                    </div>
+                                    <Badge variant="secondary">{careFacility.type}</Badge>
+                                  </div>
+                                  <div className="mt-3 flex items-center justify-between border-t pt-3 text-xs">
+                                    <span className="text-muted-foreground">운영 상태</span>
+                                    <span className="font-semibold text-emerald-700">{careFacility.status}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <CareFacilityRegistrationForm
+                              municipality={item}
+                              existingFacilities={careFacilities}
+                              onRegister={(careFacility) => {
+                                setAddedCareFacilities((current) => ({
+                                  ...current,
+                                  [item.facilityId]: [
+                                    ...(current[item.facilityId] ?? []),
+                                    careFacility,
+                                  ],
+                                }));
+                                toast.success(`${careFacility.name} 시설코드를 생성했습니다.`);
+                              }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
@@ -588,41 +701,128 @@ export function SuperAdminDashboard() {
   );
 }
 
+function CareFacilityRegistrationForm({
+  municipality,
+  existingFacilities,
+  onRegister,
+}: {
+  municipality: Facility;
+  existingFacilities: CareFacility[];
+  onRegister: (facility: CareFacility) => void;
+}) {
+  const [type, setType] = useState<CareFacility["type"]>("요양원");
+  const nextCode = createCareFacilityCode(
+    municipality.facilityCode,
+    type,
+    existingFacilities,
+  );
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const name = String(formData.get("careFacilityName") ?? "").trim();
+    if (!name) return;
+
+    onRegister({ name, type, code: nextCode, status: "운영 중" });
+    form.reset();
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="mt-4 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4"
+    >
+      <div className="mb-3">
+        <p className="text-sm font-bold">산하 시설 등록 미리보기</p>
+        <p className="text-xs text-muted-foreground">
+          시설 유형에 맞춰 다음 시설코드를 프론트에서 자동 생성합니다.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[1fr_150px_170px_auto] sm:items-end">
+        <div className="space-y-1.5">
+          <Label htmlFor={`careFacilityName-${municipality.facilityId}`}>시설명</Label>
+          <Input
+            id={`careFacilityName-${municipality.facilityId}`}
+            name="careFacilityName"
+            placeholder="예: 행복실버요양원"
+            required
+          />
+        </div>
+        <label className="space-y-1.5 text-sm font-medium">
+          시설 유형
+          <select
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={type}
+            onChange={(event) => setType(event.target.value as CareFacility["type"])}
+          >
+            <option value="요양원">요양원</option>
+            <option value="사회복지기관">사회복지기관</option>
+          </select>
+        </label>
+        <div className="space-y-1.5">
+          <Label>자동 생성 코드</Label>
+          <div className="flex h-9 items-center rounded-md border bg-background px-3 font-mono text-sm font-semibold">
+            {nextCode}
+          </div>
+        </div>
+        <Button type="submit" size="sm">
+          <Plus /> 등록
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function SignupApprovalPanel() {
-  const [requests, setRequests] = useState<TestSignupRequest[]>([]);
+  const [requests, setRequests] = useState<SignupRequestApiResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setRequests(getTestSignupRequests());
-    }, 0);
+    let cancelled = false;
 
-    return () => window.clearTimeout(timeoutId);
+    void getJson<SignupRequestApiResponse[]>("/api/signup/requests")
+      .then((rows) => {
+        if (!cancelled) setRequests(rows.filter((row) => row.status === "pending"));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          toast.error(
+            error instanceof Error ? error.message : "가입 신청을 불러오지 못했습니다.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  function handleRequest(id: number, result: "승인" | "거절") {
-    const request = requests.find((item) => item.id === id);
-    if (!request) return;
-
-    if (result === "승인") {
-      saveTestAdminAccount({
-        account: request.account,
-        password: request.password,
-        accessLevel:
-          request.role === "담당 공무원"
-            ? "MUNICIPALITY_STAFF"
-            : "WELFARE_STAFF",
-        name: request.name,
-        email: request.email,
-        role: request.role,
-        facilityId: "",
-        facilityName: request.facilityName,
-      });
+  async function handleRequest(
+    requestId: string,
+    status: "approved" | "rejected",
+  ) {
+    setProcessingId(requestId);
+    try {
+      await patchJson<SignupRequestApiResponse>(
+        `/api/signup/requests/${encodeURIComponent(requestId)}`,
+        { status },
+      );
+      setRequests((current) =>
+        current.filter((request) => request.request_id !== requestId),
+      );
+      toast.success(`회원가입 신청을 ${status === "approved" ? "승인" : "거절"}했습니다.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "가입 신청을 처리하지 못했습니다.",
+      );
+    } finally {
+      setProcessingId(null);
     }
-
-    const next = requests.filter((request) => request.id !== id);
-    setRequests(next);
-    saveTestSignupRequests(next);
-    toast.success(`회원가입 신청을 ${result}했습니다.`);
   }
 
   return (
@@ -655,7 +855,14 @@ function SignupApprovalPanel() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {requests.length === 0 && (
+              {loading && (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-40 text-center text-muted-foreground">
+                    회원가입 신청을 불러오는 중입니다.
+                  </TableCell>
+                </TableRow>
+              )}
+              {!loading && requests.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={8}
@@ -666,24 +873,33 @@ function SignupApprovalPanel() {
                 </TableRow>
               )}
               {requests.map((request) => (
-                <TableRow key={request.id}>
+                <TableRow key={request.request_id}>
                   <TableCell className="font-semibold">{request.name}</TableCell>
-                  <TableCell>{request.account}</TableCell>
-                  <TableCell>{request.facilityName}</TableCell>
-                  <TableCell className="font-mono">{request.facilityCode}</TableCell>
-                  <TableCell>{request.workplaceName}</TableCell>
+                  <TableCell>{request.account ?? "-"}</TableCell>
+                  <TableCell>{request.facility_name ?? "-"}</TableCell>
+                  <TableCell className="font-mono">{request.facility_code ?? "-"}</TableCell>
+                  <TableCell>{request.workplace_name}</TableCell>
                   <TableCell>{request.role}</TableCell>
-                  <TableCell>{request.requestedAt}</TableCell>
+                  <TableCell>
+                    {new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(
+                      new Date(request.created_at),
+                    )}
+                  </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleRequest(request.id, "거절")}
+                        disabled={processingId === request.request_id}
+                        onClick={() => handleRequest(request.request_id, "rejected")}
                       >
                         거절
                       </Button>
-                      <Button size="sm" onClick={() => handleRequest(request.id, "승인")}>
+                      <Button
+                        size="sm"
+                        disabled={processingId === request.request_id}
+                        onClick={() => handleRequest(request.request_id, "approved")}
+                      >
                         승인
                       </Button>
                     </div>

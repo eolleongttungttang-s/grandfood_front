@@ -13,16 +13,30 @@ import { Label } from "@/components/ui/label";
 import { SignupDialog } from "@/components/admin/signup-dialog";
 import {
   ADMIN_SESSION_KEY,
-  authenticateTestAdmin,
+  type AccessLevel,
   createAdminSession,
 } from "@/lib/admin-auth";
+import { postJson } from "@/lib/api";
+
+type StaffLoginResponse = {
+  access_token: string;
+  staff_id: string;
+  account: string;
+  name: string;
+  role: string;
+  access_level: AccessLevel;
+  facility_id: string | null;
+  facility_name: string | null;
+  facility_code: string | null;
+};
 
 export default function AdminLoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [signupOpen, setSignupOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
@@ -35,22 +49,39 @@ export default function AdminLoginPage() {
       return;
     }
 
-    const authenticatedAccount = authenticateTestAdmin(account, password);
-    if (!authenticatedAccount) {
-      setError("아이디 또는 비밀번호가 올바르지 않습니다.");
-      return;
-    }
+    setSubmitting(true);
+    try {
+      const result = await postJson<StaffLoginResponse>("/auth/staff/login", {
+        account,
+        password,
+      });
+      const authenticatedAccount = {
+        staffId: result.staff_id,
+        account: result.account,
+        accessLevel: result.access_level,
+        accessToken: result.access_token,
+        name: result.name,
+        role: result.role,
+        facilityId: result.facility_id ?? undefined,
+        facilityName: result.facility_name ?? undefined,
+        facilityCode: result.facility_code ?? undefined,
+      };
 
-    window.sessionStorage.setItem(
-      ADMIN_SESSION_KEY,
-      createAdminSession(authenticatedAccount),
-    );
-    toast.success(`${authenticatedAccount.name ?? account} 계정으로 로그인했습니다.`);
-    router.push(
-      authenticatedAccount.accessLevel === "SUPER_ADMIN"
-        ? "/admin/dashboard"
-        : "/admin/residents",
-    );
+      window.sessionStorage.setItem(
+        ADMIN_SESSION_KEY,
+        createAdminSession(authenticatedAccount),
+      );
+      toast.success(`${result.name} 계정으로 로그인했습니다.`);
+      router.push("/admin/statistics");
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "아이디 또는 비밀번호가 올바르지 않습니다.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -99,8 +130,8 @@ export default function AdminLoginPage() {
                 </Alert>
               )}
 
-              <Button type="submit" size="lg" className="h-12 w-full text-base">
-                로그인
+              <Button type="submit" size="lg" className="h-12 w-full text-base" disabled={submitting}>
+                {submitting ? "로그인 중..." : "로그인"}
               </Button>
             </form>
 

@@ -15,26 +15,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  getTestAdminAccounts,
-  getTestSignupRequests,
-  saveTestSignupRequests,
-} from "@/lib/admin-auth";
-import { postJson } from "@/lib/api";
+import { getJson, postJson } from "@/lib/api";
 
 type SignupDialogProps = {
   open: boolean;
   onClose: () => void;
 };
 
-type StoredFacility = {
-  facilityId: string;
-  facilityCode: string;
+type FacilityApiResponse = {
+  facility_id: string;
+  facility_code: string;
+};
+
+type OrganizationType = "MUNICIPALITY" | "NURSING_HOME" | "WELFARE_CENTER";
+
+const ROLE_OPTIONS: Record<OrganizationType, Array<{ value: string; label: string }>> = {
+  MUNICIPALITY: [
+    { value: "지자체 일반 담당자", label: "지자체 일반 담당자" },
+    { value: "지자체 영양사", label: "지자체 영양사" },
+  ],
+  NURSING_HOME: [{ value: "요양원 관리자", label: "요양원 관리자" }],
+  WELFARE_CENTER: [
+    { value: "사회복지기관 관리자", label: "사회복지기관 관리자" },
+  ],
 };
 
 export function SignupDialog({ open, onClose }: SignupDialogProps) {
   const [error, setError] = useState<string | null>(null);
+  const [organizationType, setOrganizationType] = useState<OrganizationType | "">("");
   const [role, setRole] = useState<string>("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -63,6 +73,11 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
     const passwordConfirm = String(form.get("passwordConfirm") ?? "");
     const account = String(form.get("signupAccount") ?? "").trim();
 
+    if (!organizationType) {
+      setError("소속 유형을 선택해 주세요.");
+      return;
+    }
+
     if (!role) {
       setError("담당 업무를 선택해 주세요.");
       return;
@@ -78,44 +93,55 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
       return;
     }
 
-    const requests = getTestSignupRequests();
-    const accountAlreadyExists =
-      getTestAdminAccounts().some((item) => item.account === account) ||
-      requests.some((item) => item.account === account);
-    if (accountAlreadyExists) {
-      setError("이미 사용 중이거나 승인 대기 중인 아이디입니다.");
-      return;
+    const careFacilityCode = String(form.get("careFacilityCode") ?? "").trim();
+    let facilityCode = String(form.get("facilityCode") ?? "").trim();
+    if (organizationType !== "MUNICIPALITY") {
+      const codeParts = careFacilityCode.split("-");
+      const expectedTypePrefix = organizationType === "NURSING_HOME" ? "N" : "W";
+      if (
+        codeParts.length < 3 ||
+        !codeParts.at(-1)?.startsWith(expectedTypePrefix)
+      ) {
+        setError(
+          organizationType === "NURSING_HOME"
+            ? "요양원 시설코드를 확인해 주세요. 예: GN-0001-N001"
+            : "사회복지기관 시설코드를 확인해 주세요. 예: GN-0001-W001",
+        );
+        return;
+      }
+      facilityCode = codeParts.slice(0, -1).join("-");
     }
 
     const signupRequest = {
-      id: Date.now(),
       name: String(form.get("name") ?? "").trim(),
       account,
       password,
       email: String(form.get("email") ?? "").trim(),
       phone: String(form.get("phone") ?? "").trim(),
-      facilityName: String(form.get("facilityName") ?? "").trim(),
-      facilityCode: String(form.get("facilityCode") ?? "").trim(),
+      facilityCode,
+      careFacilityCode,
       workplaceName: String(form.get("workplaceName") ?? "").trim(),
+      organizationType,
       role,
       department: String(form.get("department") ?? "").trim(),
-      requestedAt: new Intl.DateTimeFormat("ko-KR", {
-        dateStyle: "medium",
-      }).format(new Date()),
     };
 
-    const savedFacilities = window.localStorage.getItem("grandfood_test_facilities");
-    const facilities = savedFacilities
-      ? (JSON.parse(savedFacilities) as StoredFacility[])
-      : [];
-    const facility = facilities.find(
-      (item) => item.facilityCode === signupRequest.facilityCode,
-    );
-
+    setSubmitting(true);
     try {
+      const facilities = await getJson<FacilityApiResponse[]>("/api/admin/facilities");
+      const facility = facilities.find(
+        (item) => item.facility_code === signupRequest.facilityCode,
+      );
+      if (!facility) {
+        setError("등록되지 않은 기관 코드입니다. 기관 코드를 다시 확인해 주세요.");
+        return;
+      }
+
       await postJson("/api/signup/requests", {
-        facility_id: facility?.facilityId ?? null,
+        facility_id: facility.facility_id,
         facility_code: signupRequest.facilityCode,
+        care_facility_code: signupRequest.careFacilityCode || null,
+        organization_type: signupRequest.organizationType,
         workplace_name: signupRequest.workplaceName,
         name: signupRequest.name,
         role: signupRequest.role,
@@ -125,13 +151,14 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
         phone: signupRequest.phone,
         password: signupRequest.password,
       });
-      saveTestSignupRequests([...requests, signupRequest]);
       toast.success("회원가입 신청을 전송했습니다.");
       onClose();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "회원가입 신청을 전송하지 못했습니다.",
       );
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -168,47 +195,96 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
               소속 정보
             </legend>
             <div className="space-y-2">
-              <Label htmlFor="facilityName">관할 지자체</Label>
-              <Input
-                id="facilityName"
-                name="facilityName"
-                placeholder="예: 강남구청"
-                required
-              />
+              <Label htmlFor="organizationType">소속 유형</Label>
+              <Select
+                value={organizationType}
+                onValueChange={(value) => {
+                  setOrganizationType((value ?? "") as OrganizationType | "");
+                  setRole("");
+                }}
+              >
+                <SelectTrigger id="organizationType" className="h-9 w-full">
+                  <SelectValue placeholder="소속 유형 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MUNICIPALITY">지자체</SelectItem>
+                  <SelectItem value="NURSING_HOME">요양원</SelectItem>
+                  <SelectItem value="WELFARE_CENTER">사회복지기관</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+            {organizationType === "MUNICIPALITY" && (
+              <div className="space-y-2">
+                <Label htmlFor="facilityCode">지자체 기관코드</Label>
+                <Input
+                  id="facilityCode"
+                  name="facilityCode"
+                  placeholder="예: GN-0001"
+                  required
+                />
+                <p className="text-xs text-slate-500">
+                  관할 지자체에서 발급한 기본 기관코드를 입력해 주세요.
+                </p>
+              </div>
+            )}
+            {organizationType && organizationType !== "MUNICIPALITY" && (
+              <div className="space-y-2">
+                <Label htmlFor="careFacilityCode">산하 시설코드</Label>
+                <Input
+                  id="careFacilityCode"
+                  name="careFacilityCode"
+                  placeholder={
+                    organizationType === "NURSING_HOME"
+                      ? "예: GN-0001-N001"
+                      : "예: GN-0001-W001"
+                  }
+                  required
+                />
+                <p className="text-xs text-slate-500">
+                  시설코드에 관할 지자체 코드가 포함되어 있습니다.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
-              <Label htmlFor="facilityCode">기관 코드</Label>
-              <Input
-                id="facilityCode"
-                name="facilityCode"
-                placeholder="발급받은 기관 코드"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="workplaceName">근무 기관</Label>
+              <Label htmlFor="workplaceName">
+                {organizationType === "MUNICIPALITY" ? "소속 지자체·부서" : "소속 시설명"}
+              </Label>
               <Input
                 id="workplaceName"
                 name="workplaceName"
-                placeholder="예: 강남종합사회복지관"
+                placeholder={
+                  organizationType === "NURSING_HOME"
+                    ? "예: 강남실버요양원"
+                    : organizationType === "WELFARE_CENTER"
+                      ? "예: 늘봄사회복지관"
+                      : "예: 강남구청 복지정책과"
+                }
                 required
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="role">담당 업무</Label>
-              <Select value={role} onValueChange={(value) => setRole(value ?? "")}>
+              <Select
+                value={role}
+                disabled={!organizationType}
+                onValueChange={(value) => setRole(value ?? "")}
+              >
                 <SelectTrigger id="role" className="h-9 w-full">
-                  <SelectValue placeholder="담당 업무 선택" />
+                  <SelectValue
+                    placeholder={organizationType ? "담당 업무 선택" : "소속 유형을 먼저 선택"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="담당 공무원">담당 공무원</SelectItem>
-                  <SelectItem value="영양사">영양사</SelectItem>
-                  <SelectItem value="사회복지사">사회복지사</SelectItem>
-                  <SelectItem value="기타 담당자">기타 담당자</SelectItem>
+                  {organizationType &&
+                    ROLE_OPTIONS[organizationType].map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-500">
-                선택한 업무는 관리자 승인 시 확인됩니다.
+                지자체 관리자 계정은 최고 관리자가 별도로 발급합니다.
               </p>
             </div>
             <div className="space-y-2">
@@ -309,7 +385,9 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
             <Button type="button" variant="outline" onClick={onClose}>
               취소
             </Button>
-            <Button type="submit">가입 신청</Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "신청 중..." : "가입 신청"}
+            </Button>
           </div>
         </form>
       </section>

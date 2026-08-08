@@ -36,7 +36,8 @@ import {
 const NAV_ITEMS = [
   { label: "공지사항", href: "/admin/notices", icon: Bell },
   { label: "대상자 명단", href: "/admin/residents", icon: UsersRound },
-  { label: "통계", href: "/admin/statistics", icon: ChartNoAxesCombined },
+  { label: "통합 모니터링", href: "/admin/statistics", icon: ChartNoAxesCombined },
+  { label: "통합 모니터링 2", href: "/admin/statistics-empty", icon: ChartNoAxesCombined },
 ];
 
 export function AppSidebar() {
@@ -50,7 +51,7 @@ export function AppSidebar() {
   }, []);
 
   const isSuperAdmin = session?.accessLevel === "SUPER_ADMIN";
-  const homePath = "/admin/dashboard?section=registration";
+  const homePath = "/admin/statistics";
 
   function handleLogout() {
     window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
@@ -80,7 +81,10 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_ITEMS.map((item) => {
-                const isActive = pathname.startsWith(item.href);
+                const isActive =
+                  item.href === "/admin/residents"
+                    ? pathname.startsWith(item.href)
+                    : pathname === item.href;
                 const Icon = item.icon;
                 return (
                   <SidebarMenuItem key={item.href}>
