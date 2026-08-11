@@ -297,13 +297,7 @@ export function ResidentsTable({
               <TableRow
                 key={r.id}
                 className="cursor-pointer"
-                onClick={() => {
-                  if (r.isPrototype || r.id.startsWith("LOCAL-")) {
-                    toast.info("프로토타입 등록 대상자의 상세 화면은 추후 연결됩니다.");
-                    return;
-                  }
-                  router.push(`/admin/residents/${r.id}`);
-                }}
+                onClick={() => router.push(`/admin/residents/${r.id}`)}
               >
                 <TableCell className="text-muted-foreground">{r.id}</TableCell>
                 <TableCell className="font-semibold text-foreground">

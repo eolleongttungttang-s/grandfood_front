@@ -1,12 +1,10 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Building2,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   KeyRound,
   Plus,
   ShieldCheck,
@@ -27,6 +25,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { type AccessLevel, readAdminSession } from "@/lib/admin-auth";
 import { getJson, patchJson, postJson } from "@/lib/api";
 import {
   Table,
@@ -53,24 +52,6 @@ type CareFacility = {
   code: string;
   status: "운영 중";
 };
-
-function getExampleCareFacilities(facility: Facility): CareFacility[] {
-  const districtName = facility.facilityName.replace(/청$/, "");
-  return [
-    {
-      name: `${districtName} 실버요양원`,
-      type: "요양원",
-      code: `${facility.facilityCode}-N001`,
-      status: "운영 중",
-    },
-    {
-      name: `${districtName} 종합사회복지관`,
-      type: "사회복지기관",
-      code: `${facility.facilityCode}-W001`,
-      status: "운영 중",
-    },
-  ];
-}
 
 function createCareFacilityCode(
   municipalityCode: string,
@@ -119,6 +100,10 @@ type SignupRequestApiResponse = {
   facility_id: string;
   facility_name: string | null;
   facility_code: string | null;
+  organization_type: "MUNICIPALITY" | "NURSING_HOME" | "WELFARE_CENTER";
+  care_facility_id: string | null;
+  care_facility_name: string | null;
+  care_facility_code: string | null;
   workplace_name: string;
   name: string;
   role: string;
@@ -180,9 +165,15 @@ function calculateContractEnd(startDate: string, years: number) {
 export function SuperAdminDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const requestedSection = searchParams.get("section");
   const section =
-    searchParams.get("section") === "approvals" ? "approvals" : "registration";
+    requestedSection === "approvals" || requestedSection === "care-facilities"
+      ? requestedSection
+      : "registration";
   const [facilities, setFacilities] = useState(INITIAL_FACILITIES);
+  const [accessLevel] = useState<AccessLevel | null>(
+    () => readAdminSession()?.accessLevel ?? null,
+  );
   const [facilitiesLoading, setFacilitiesLoading] = useState(true);
   const [facilitiesError, setFacilitiesError] = useState<string | null>(null);
   const activePanel =
@@ -194,12 +185,24 @@ export function SuperAdminDashboard() {
   } | null>(null);
   const [contractStart, setContractStart] = useState("");
   const [contractEnd, setContractEnd] = useState("");
-  const [expandedFacilityId, setExpandedFacilityId] = useState<string | null>(null);
   const [addedCareFacilities, setAddedCareFacilities] = useState<
     Record<string, CareFacility[]>
   >({});
 
   useEffect(() => {
+    if (
+      accessLevel === "MUNICIPALITY_ADMIN" &&
+      section !== "approvals"
+    ) {
+      router.replace("/admin/dashboard?section=approvals");
+    }
+  }, [accessLevel, router, section]);
+
+  useEffect(() => {
+    if (readAdminSession()?.accessLevel !== "SUPER_ADMIN") {
+      return;
+    }
+
     let cancelled = false;
 
     async function loadFacilities() {
@@ -220,8 +223,11 @@ export function SuperAdminDashboard() {
           }
         }
 
+        const municipalityRows = facilityRows.filter(
+          (facility) => facility.facility_type === "MUNICIPALITY",
+        );
         setFacilities(
-          facilityRows.map((facility) => {
+          municipalityRows.map((facility) => {
             const manager = managerByFacility.get(facility.facility_id);
             return {
               facilityId: facility.facility_id,
@@ -234,6 +240,29 @@ export function SuperAdminDashboard() {
             };
           }),
         );
+
+        const municipalityIdByCode = new Map(
+          municipalityRows.map((facility) => [facility.facility_code, facility.facility_id]),
+        );
+        const careFacilitiesByMunicipality: Record<string, CareFacility[]> = {};
+        for (const facility of facilityRows) {
+          if (
+            facility.facility_type !== "NURSING_HOME" &&
+            facility.facility_type !== "WELFARE_CENTER"
+          ) {
+            continue;
+          }
+          const municipalityCode = facility.facility_code.split("-").slice(0, -1).join("-");
+          const municipalityId = municipalityIdByCode.get(municipalityCode);
+          if (!municipalityId) continue;
+          (careFacilitiesByMunicipality[municipalityId] ??= []).push({
+            name: facility.name,
+            type: facility.facility_type === "NURSING_HOME" ? "요양원" : "사회복지기관",
+            code: facility.facility_code,
+            status: "운영 중",
+          });
+        }
+        setAddedCareFacilities(careFacilitiesByMunicipality);
       } catch (error) {
         if (cancelled) return;
         setFacilitiesError(
@@ -359,8 +388,31 @@ export function SuperAdminDashboard() {
 
   const activeManagers = facilities.filter((item) => item.managerAccount).length;
 
-  if (section === "approvals") {
+  if (accessLevel === "MUNICIPALITY_ADMIN" || section === "approvals") {
     return <SignupApprovalPanel />;
+  }
+
+  if (accessLevel !== "SUPER_ADMIN") return null;
+
+  if (section === "care-facilities") {
+    return (
+      <CareFacilityManagementPanel
+        facilities={facilities}
+        facilitiesLoading={facilitiesLoading}
+        facilitiesError={facilitiesError}
+        careFacilitiesByMunicipality={addedCareFacilities}
+        onRegister={(municipalityId, careFacility) => {
+          setAddedCareFacilities((current) => ({
+            ...current,
+            [municipalityId]: [
+              ...(current[municipalityId] ?? []),
+              careFacility,
+            ],
+          }));
+          toast.success(`${careFacility.name} 시설코드를 생성했습니다.`);
+        }}
+      />
+    );
   }
 
   return (
@@ -611,92 +663,97 @@ export function SuperAdminDashboard() {
                     </TableCell>
                   </TableRow>
                 )}
-                {facilities.map((item) => {
-                  const isExpanded = expandedFacilityId === item.facilityId;
-                  const careFacilities = [
-                    ...getExampleCareFacilities(item),
-                    ...(addedCareFacilities[item.facilityId] ?? []),
-                  ];
-                  return (
-                    <Fragment key={item.facilityId}>
-                      <TableRow>
-                        <TableCell>
-                          <button
-                            type="button"
-                            className="flex items-center gap-2 font-semibold hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            aria-expanded={isExpanded}
-                            onClick={() =>
-                              setExpandedFacilityId(isExpanded ? null : item.facilityId)
-                            }
-                          >
-                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                            {item.facilityName}
-                          </button>
-                        </TableCell>
-                        <TableCell>{item.department || "미지정"}</TableCell>
-                        <TableCell className="font-mono">{item.facilityCode}</TableCell>
-                        <TableCell>{item.managerAccount ?? "미발급"}</TableCell>
-                        <TableCell>
-                          <Badge variant={item.status === "활성" ? "default" : "secondary"}>
-                            {item.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                      {isExpanded && (
-                        <TableRow className="bg-muted/30 hover:bg-muted/30">
-                          <TableCell colSpan={5} className="p-4 sm:pl-10">
-                            <div className="mb-3 flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-bold">산하 시설</p>
-                                <p className="text-xs text-muted-foreground">{item.facilityName} 기관코드로 등록된 시설입니다.</p>
-                              </div>
-                              <Badge variant="outline">{careFacilities.length}곳</Badge>
-                            </div>
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              {careFacilities.map((careFacility) => (
-                                <div key={careFacility.code} className="rounded-xl border bg-card p-4 shadow-sm">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="flex min-w-0 items-start gap-3">
-                                      <div className="rounded-lg bg-primary/10 p-2 text-primary"><Building2 className="h-4 w-4" /></div>
-                                      <div className="min-w-0">
-                                        <p className="truncate font-bold">{careFacility.name}</p>
-                                        <p className="mt-1 font-mono text-xs text-muted-foreground">{careFacility.code}</p>
-                                      </div>
-                                    </div>
-                                    <Badge variant="secondary">{careFacility.type}</Badge>
-                                  </div>
-                                  <div className="mt-3 flex items-center justify-between border-t pt-3 text-xs">
-                                    <span className="text-muted-foreground">운영 상태</span>
-                                    <span className="font-semibold text-emerald-700">{careFacility.status}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                            <CareFacilityRegistrationForm
-                              municipality={item}
-                              existingFacilities={careFacilities}
-                              onRegister={(careFacility) => {
-                                setAddedCareFacilities((current) => ({
-                                  ...current,
-                                  [item.facilityId]: [
-                                    ...(current[item.facilityId] ?? []),
-                                    careFacility,
-                                  ],
-                                }));
-                                toast.success(`${careFacility.name} 시설코드를 생성했습니다.`);
-                              }}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </Fragment>
-                  );
-                })}
+                {facilities.map((item) => (
+                  <TableRow key={item.facilityId}>
+                    <TableCell className="font-semibold">{item.facilityName}</TableCell>
+                    <TableCell>{item.department || "미지정"}</TableCell>
+                    <TableCell className="font-mono">{item.facilityCode}</TableCell>
+                    <TableCell>{item.managerAccount ?? "미발급"}</TableCell>
+                    <TableCell>
+                      <Badge variant={item.status === "활성" ? "default" : "secondary"}>
+                        {item.status}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
       </section>
+    </main>
+  );
+}
+
+function CareFacilityManagementPanel({
+  facilities,
+  facilitiesLoading,
+  facilitiesError,
+  careFacilitiesByMunicipality,
+  onRegister,
+}: {
+  facilities: Facility[];
+  facilitiesLoading: boolean;
+  facilitiesError: string | null;
+  careFacilitiesByMunicipality: Record<string, CareFacility[]>;
+  onRegister: (municipalityId: string, facility: CareFacility) => void;
+}) {
+  return (
+    <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
+      <PageHeader
+        title="산하시설 등록"
+        description="지자체별 요양원과 사회복지기관을 등록하고 기관코드를 발급합니다."
+        action={<Badge variant="secondary">SUPER ADMIN</Badge>}
+      />
+
+      {facilitiesLoading && (
+        <Card><CardContent className="py-10 text-center text-muted-foreground">지자체 정보를 불러오는 중입니다.</CardContent></Card>
+      )}
+      {!facilitiesLoading && facilitiesError && (
+        <Card><CardContent className="py-10 text-center text-destructive">{facilitiesError}</CardContent></Card>
+      )}
+      {!facilitiesLoading && !facilitiesError && facilities.length === 0 && (
+        <Card><CardContent className="py-10 text-center text-muted-foreground">먼저 지자체를 등록해 주세요.</CardContent></Card>
+      )}
+
+      {!facilitiesLoading && !facilitiesError && facilities.map((municipality) => {
+        const careFacilities = careFacilitiesByMunicipality[municipality.facilityId] ?? [];
+        return (
+          <Card key={municipality.facilityId}>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle>{municipality.facilityName}</CardTitle>
+                  <CardDescription className="mt-1 font-mono">{municipality.facilityCode}</CardDescription>
+                </div>
+                <Badge variant="outline">산하시설 {careFacilities.length}곳</Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {careFacilities.length > 0 && (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {careFacilities.map((careFacility) => (
+                    <div key={careFacility.code} className="rounded-xl border bg-card p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold">{careFacility.name}</p>
+                          <p className="mt-1 font-mono text-xs text-muted-foreground">{careFacility.code}</p>
+                        </div>
+                        <Badge variant="secondary">{careFacility.type}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <CareFacilityRegistrationForm
+                municipality={municipality}
+                existingFacilities={careFacilities}
+                onRegister={(careFacility) => onRegister(municipality.facilityId, careFacility)}
+              />
+            </CardContent>
+          </Card>
+        );
+      })}
     </main>
   );
 }
@@ -711,21 +768,44 @@ function CareFacilityRegistrationForm({
   onRegister: (facility: CareFacility) => void;
 }) {
   const [type, setType] = useState<CareFacility["type"]>("요양원");
+  const [submitting, setSubmitting] = useState(false);
   const nextCode = createCareFacilityCode(
     municipality.facilityCode,
     type,
     existingFacilities,
   );
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const formData = new FormData(form);
     const name = String(formData.get("careFacilityName") ?? "").trim();
     if (!name) return;
 
-    onRegister({ name, type, code: nextCode, status: "운영 중" });
-    form.reset();
+    setSubmitting(true);
+    try {
+      const result = await postJson<FacilityApiResponse>("/api/admin/facilities", {
+        name,
+        facility_type: type === "요양원" ? "NURSING_HOME" : "WELFARE_CENTER",
+        facility_code: nextCode,
+        department: null,
+        contract_start_date: null,
+        contract_end_date: null,
+      });
+      onRegister({
+        name: result.name,
+        type: result.facility_type === "NURSING_HOME" ? "요양원" : "사회복지기관",
+        code: result.facility_code,
+        status: "운영 중",
+      });
+      form.reset();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "관할시설을 등록하지 못했습니다.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -766,7 +846,7 @@ function CareFacilityRegistrationForm({
             {nextCode}
           </div>
         </div>
-        <Button type="submit" size="sm">
+        <Button type="submit" size="sm" disabled={submitting}>
           <Plus /> 등록
         </Button>
       </div>
@@ -846,9 +926,11 @@ function SignupApprovalPanel() {
               <TableRow>
                 <TableHead>신청자</TableHead>
                 <TableHead>아이디</TableHead>
+                <TableHead>전화번호</TableHead>
+                <TableHead>신청 유형</TableHead>
                 <TableHead>관할 지자체</TableHead>
+                <TableHead>신청 기관</TableHead>
                 <TableHead>기관코드</TableHead>
-                <TableHead>근무 기관</TableHead>
                 <TableHead>담당 업무</TableHead>
                 <TableHead>신청일</TableHead>
                 <TableHead className="text-right">처리</TableHead>
@@ -857,7 +939,7 @@ function SignupApprovalPanel() {
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-40 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="h-40 text-center text-muted-foreground">
                     회원가입 신청을 불러오는 중입니다.
                   </TableCell>
                 </TableRow>
@@ -865,7 +947,7 @@ function SignupApprovalPanel() {
               {!loading && requests.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={10}
                     className="h-40 text-center text-muted-foreground"
                   >
                     승인 대기 중인 회원가입 신청이 없습니다.
@@ -876,9 +958,23 @@ function SignupApprovalPanel() {
                 <TableRow key={request.request_id}>
                   <TableCell className="font-semibold">{request.name}</TableCell>
                   <TableCell>{request.account ?? "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{request.phone ?? "-"}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">
+                      {request.organization_type === "MUNICIPALITY"
+                        ? "지자체"
+                        : request.organization_type === "NURSING_HOME"
+                          ? "요양원"
+                          : "사회복지기관"}
+                    </Badge>
+                  </TableCell>
                   <TableCell>{request.facility_name ?? "-"}</TableCell>
-                  <TableCell className="font-mono">{request.facility_code ?? "-"}</TableCell>
-                  <TableCell>{request.workplace_name}</TableCell>
+                  <TableCell>
+                    {request.care_facility_name ?? request.facility_name ?? request.workplace_name}
+                  </TableCell>
+                  <TableCell className="font-mono">
+                    {request.care_facility_code ?? request.facility_code ?? "-"}
+                  </TableCell>
                   <TableCell>{request.role}</TableCell>
                   <TableCell>
                     {new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(

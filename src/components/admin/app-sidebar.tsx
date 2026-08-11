@@ -29,7 +29,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { GrandFoodMark } from "@/components/brand/grandfood-logo";
 import {
   ADMIN_SESSION_KEY,
-  AdminSession,
+  type AdminSession,
+  getAdminOrganizationName,
   readAdminSession,
 } from "@/lib/admin-auth";
 
@@ -51,7 +52,13 @@ export function AppSidebar() {
   }, []);
 
   const isSuperAdmin = session?.accessLevel === "SUPER_ADMIN";
+  const canReviewSignups =
+    isSuperAdmin || session?.accessLevel === "MUNICIPALITY_ADMIN";
+  const managementPath = isSuperAdmin
+    ? "/admin/dashboard?section=registration"
+    : "/admin/dashboard?section=approvals";
   const homePath = "/admin/statistics";
+  const organizationName = getAdminOrganizationName(session);
 
   function handleLogout() {
     window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
@@ -106,25 +113,36 @@ export function AppSidebar() {
 
       <SidebarFooter>
         <SidebarMenu>
-          {session && (
+          {session && canReviewSignups && (
             <SidebarMenuItem>
               <SidebarMenuButton
                 isActive={pathname.startsWith("/admin/dashboard")}
                 tooltip="관리"
-                render={<Link href="/admin/dashboard?section=registration" />}
+                render={<Link href={managementPath} />}
               >
                 <LayoutDashboard />
                 <span>관리</span>
               </SidebarMenuButton>
               {pathname.startsWith("/admin/dashboard") && (
                 <SidebarMenuSub>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      render={<Link href="/admin/dashboard?section=registration" />}
-                    >
-                      <span>등록</span>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
+                  {isSuperAdmin && (
+                    <>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton
+                          render={<Link href="/admin/dashboard?section=registration" />}
+                        >
+                          <span>지자체 및 계정 등록</span>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton
+                          render={<Link href="/admin/dashboard?section=care-facilities" />}
+                        >
+                          <span>산하시설 등록</span>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    </>
+                  )}
                   <SidebarMenuSubItem>
                     <SidebarMenuSubButton
                       render={<Link href="/admin/dashboard?section=approvals" />}
@@ -150,9 +168,7 @@ export function AppSidebar() {
                 <span className="truncate text-xs text-sidebar-foreground/60">
                   {isSuperAdmin
                     ? "GrandFood · 최종관리자"
-                    : `${session?.facilityName ?? "지자체"} · ${
-                        session?.role ?? "담당자"
-                      }`}
+                    : `${organizationName} · ${session?.role ?? "담당자"}`}
                 </span>
               </div>
             </div>

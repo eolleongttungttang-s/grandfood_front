@@ -15,16 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getJson, postJson } from "@/lib/api";
+import { postJson } from "@/lib/api";
 
 type SignupDialogProps = {
   open: boolean;
   onClose: () => void;
-};
-
-type FacilityApiResponse = {
-  facility_id: string;
-  facility_code: string;
 };
 
 type OrganizationType = "MUNICIPALITY" | "NURSING_HOME" | "WELFARE_CENTER";
@@ -109,7 +104,7 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
         );
         return;
       }
-      facilityCode = codeParts.slice(0, -1).join("-");
+      facilityCode = careFacilityCode;
     }
 
     const signupRequest = {
@@ -119,29 +114,15 @@ export function SignupDialog({ open, onClose }: SignupDialogProps) {
       email: String(form.get("email") ?? "").trim(),
       phone: String(form.get("phone") ?? "").trim(),
       facilityCode,
-      careFacilityCode,
       workplaceName: String(form.get("workplaceName") ?? "").trim(),
-      organizationType,
       role,
       department: String(form.get("department") ?? "").trim(),
     };
 
     setSubmitting(true);
     try {
-      const facilities = await getJson<FacilityApiResponse[]>("/api/admin/facilities");
-      const facility = facilities.find(
-        (item) => item.facility_code === signupRequest.facilityCode,
-      );
-      if (!facility) {
-        setError("등록되지 않은 기관 코드입니다. 기관 코드를 다시 확인해 주세요.");
-        return;
-      }
-
       await postJson("/api/signup/requests", {
-        facility_id: facility.facility_id,
         facility_code: signupRequest.facilityCode,
-        care_facility_code: signupRequest.careFacilityCode || null,
-        organization_type: signupRequest.organizationType,
         workplace_name: signupRequest.workplaceName,
         name: signupRequest.name,
         role: signupRequest.role,

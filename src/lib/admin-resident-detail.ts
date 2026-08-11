@@ -12,22 +12,51 @@ export type ResidentDetail = {
   chewingNote: string;
   checkup: {
     date: string;
-    systolicBP: number;
-    fastingGlucose: number;
-    hba1c: number;
-    egfr: number;
-    weightKg: number;
-    albumin: number;
+    systolicBP: number | string;
+    fastingGlucose: number | string;
+    hba1c: number | string;
+    egfr: number | string;
+    weightKg: number | string;
+    albumin: number | string;
   };
   diet: {
     name: string;
-    sodiumMg: number;
-    proteinG: number;
-    kcal: number;
+    sodiumMg: number | string;
+    proteinG: number | string;
+    kcal: number | string;
     reasons: string[];
   };
   mealHistory: MealTone[];
 };
+
+export function getEmptyResidentDetail(): ResidentDetail {
+  return {
+    caseWorker: "-",
+    livingAlone: false,
+    supportType: "-",
+    diagnoses: [],
+    allergies: [],
+    medications: [],
+    chewingNote: "-",
+    checkup: {
+      date: "-",
+      systolicBP: "-",
+      fastingGlucose: "-",
+      hba1c: "-",
+      egfr: "-",
+      weightKg: "-",
+      albumin: "-",
+    },
+    diet: {
+      name: "미배정",
+      sodiumMg: "-",
+      proteinG: "-",
+      kcal: "-",
+      reasons: [],
+    },
+    mealHistory: [],
+  };
+}
 
 function seed(id: string) {
   let s = 0;

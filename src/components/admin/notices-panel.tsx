@@ -52,10 +52,17 @@ export function NoticesPanel() {
     const timeoutId = window.setTimeout(() => {
       const session = readAdminSession();
       const superAdmin = session?.accessLevel === "SUPER_ADMIN";
-      const sessionFacilityId = session?.facilityId || null;
+      const isCareFacilityAdmin =
+        session?.accessLevel === "CARE_FACILITY_ADMIN";
+      const sessionFacilityId = isCareFacilityAdmin
+        ? session?.careFacilityId || null
+        : session?.facilityId || null;
+      const sessionFacilityName = isCareFacilityAdmin
+        ? session?.careFacilityName || null
+        : session?.facilityName || null;
       setIsSuperAdmin(superAdmin);
       setFacilityId(sessionFacilityId);
-      setFacilityName(session?.facilityName || null);
+      setFacilityName(sessionFacilityName);
 
       if (superAdmin) {
         void getJson<FacilityApiResponse[]>("/api/admin/facilities")

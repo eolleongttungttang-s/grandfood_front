@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 
 import { SessionTimer } from "@/components/admin/session-timer";
-import { AdminSession, readAdminSession } from "@/lib/admin-auth";
+import {
+  type AdminSession,
+  getAdminOrganizationName,
+  readAdminSession,
+} from "@/lib/admin-auth";
 
 export function AdminHeaderIdentity() {
   const [session, setSession] = useState<AdminSession | null>(null);
@@ -14,15 +18,14 @@ export function AdminHeaderIdentity() {
   }, []);
 
   const isSuperAdmin = session?.accessLevel === "SUPER_ADMIN";
+  const organizationName = getAdminOrganizationName(session);
 
   return (
     <>
       <span className="text-sm font-semibold text-foreground">
         {isSuperAdmin
           ? "GrandFood · 서비스 관리"
-          : `${session?.facilityName ?? "지자체"} · ${
-              session?.role ?? "담당자"
-            }`}
+          : `${organizationName} · ${session?.role ?? "담당자"}`}
       </span>
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <SessionTimer />

@@ -3,14 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AccessLevel, readAdminSession } from "@/lib/admin-auth";
+import { type AccessLevel, readAdminSession } from "@/lib/admin-auth";
 
 export function AdminAuthGuard({
   children,
   requiredAccessLevel,
+  allowedAccessLevels,
 }: {
   children: React.ReactNode;
   requiredAccessLevel?: AccessLevel;
+  allowedAccessLevels?: readonly AccessLevel[];
 }) {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -27,9 +29,14 @@ export function AdminAuthGuard({
       return;
     }
 
+    if (allowedAccessLevels && !allowedAccessLevels.includes(session.accessLevel)) {
+      router.replace("/admin/residents");
+      return;
+    }
+
     const timeoutId = window.setTimeout(() => setIsAuthenticated(true), 0);
     return () => window.clearTimeout(timeoutId);
-  }, [requiredAccessLevel, router]);
+  }, [allowedAccessLevels, requiredAccessLevel, router]);
 
   if (!isAuthenticated) {
     return (

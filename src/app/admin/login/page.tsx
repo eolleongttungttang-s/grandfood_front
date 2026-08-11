@@ -28,6 +28,10 @@ type StaffLoginResponse = {
   facility_id: string | null;
   facility_name: string | null;
   facility_code: string | null;
+  care_facility_id: string | null;
+  care_facility_name: string | null;
+  care_facility_code: string | null;
+  facility_type: string | null;
 };
 
 export default function AdminLoginPage() {
@@ -65,6 +69,10 @@ export default function AdminLoginPage() {
         facilityId: result.facility_id ?? undefined,
         facilityName: result.facility_name ?? undefined,
         facilityCode: result.facility_code ?? undefined,
+        careFacilityId: result.care_facility_id ?? undefined,
+        careFacilityName: result.care_facility_name ?? undefined,
+        careFacilityCode: result.care_facility_code ?? undefined,
+        facilityType: result.facility_type ?? undefined,
       };
 
       window.sessionStorage.setItem(
