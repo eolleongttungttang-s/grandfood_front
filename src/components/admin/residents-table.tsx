@@ -10,10 +10,12 @@ import {
   RESIDENTS_STORAGE_KEY,
   RiskLevel,
 } from "@/lib/admin-residents";
+import { readAdminSession } from "@/lib/admin-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -388,12 +390,28 @@ function RegisterResidentDialog({
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const session = readAdminSession();
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") ?? "").trim();
     const age = Number(form.get("age"));
     const address = String(form.get("address") ?? "").trim();
     const facilityCode = String(form.get("facilityCode") ?? "").trim();
     const condition = String(form.get("condition") ?? "").trim();
+    const allergies = String(form.get("allergies") ?? "")
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const medications = String(form.get("medications") ?? "")
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => {
+        const [name, ...scheduleParts] = item.split("/");
+        return {
+          name: name.trim(),
+          schedule: scheduleParts.join("/").trim() || "-",
+        };
+      });
     const guardianName = String(form.get("guardianName") ?? "").trim();
     const guardianPhone = String(form.get("guardianPhone") ?? "").trim();
     const note = String(form.get("note") ?? "").trim();
@@ -404,12 +422,15 @@ function RegisterResidentDialog({
       id: nextResidentId,
       isPrototype: true,
       name,
+      caseWorker: session?.name ?? session?.account ?? "-",
       age,
       gender,
       facilityCode,
       address,
       dong: address,
       condition: condition || "특이사항 없음",
+      allergies,
+      medications,
       lastResponse: "등록 후 응답 없음",
       lastResponseTone: "neutral",
       risk: "보통",
@@ -514,10 +535,27 @@ function RegisterResidentDialog({
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="resident-condition">주요 질환 (선택)</Label>
-              <Input
+              <Textarea
                 id="resident-condition"
                 name="condition"
-                placeholder="예: 고혈압 · 당뇨 (선택)"
+                placeholder="예: 고혈압, 당뇨"
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resident-allergies">알레르기 및 금기 (선택)</Label>
+              <Textarea
+                id="resident-allergies"
+                name="allergies"
+                placeholder="쉼표 또는 줄바꿈으로 구분해 주세요. 예: 우유, 견과류"
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resident-medications">복약 정보 (선택)</Label>
+              <Textarea
+                id="resident-medications"
+                name="medications"
+                placeholder={"약 이름 / 복용법 형식으로 한 줄에 하나씩 입력해 주세요.\n예: 암로디핀 5mg / 1일 1회 아침"}
+                rows={4}
               />
             </div>
             <div className="space-y-2">

@@ -6,6 +6,7 @@ export type Resident = {
   id: string;
   isPrototype?: boolean;
   name: string;
+  caseWorker?: string;
   age: number;
   gender: "여" | "남";
   facilityCode?: string;
@@ -13,6 +14,8 @@ export type Resident = {
   /** 기존 테스트 데이터 호환용 동 단위 주소 */
   dong: string;
   condition: string;
+  allergies?: string[];
+  medications?: { name: string; schedule: string }[];
   lastResponse: string;
   lastResponseTone: "danger" | "warning" | "neutral";
   risk: RiskLevel;

@@ -5,17 +5,17 @@ export type MealTone = "완식" | "소량" | "미응답";
 export type ResidentDetail = {
   caseWorker: string;
   livingAlone: boolean;
-  supportType: string;
   diagnoses: string[];
   allergies: string[];
   medications: { name: string; schedule: string }[];
-  chewingNote: string;
+  otherNote: string;
   checkup: {
     date: string;
     systolicBP: number | string;
     fastingGlucose: number | string;
     hba1c: number | string;
     egfr: number | string;
+    heightCm: number | string;
     weightKg: number | string;
     albumin: number | string;
   };
@@ -29,21 +29,25 @@ export type ResidentDetail = {
   mealHistory: MealTone[];
 };
 
-export function getEmptyResidentDetail(): ResidentDetail {
+export function getEmptyResidentDetail(resident?: Resident): ResidentDetail {
+  const diagnoses = resident?.condition
+    ? resident.condition.split(/[,\n·]/).map((item) => item.trim()).filter(Boolean)
+    : [];
+
   return {
     caseWorker: "-",
     livingAlone: false,
-    supportType: "-",
-    diagnoses: [],
-    allergies: [],
-    medications: [],
-    chewingNote: "-",
+    diagnoses,
+    allergies: resident?.allergies ?? [],
+    medications: resident?.medications ?? [],
+    otherNote: resident?.note ?? "-",
     checkup: {
       date: "-",
       systolicBP: "-",
       fastingGlucose: "-",
       hba1c: "-",
       egfr: "-",
+      heightCm: "-",
       weightKg: "-",
       albumin: "-",
     },
@@ -87,17 +91,11 @@ export function getResidentDetail(resident: Resident): ResidentDetail {
   if (medications.length === 0)
     medications.push({ name: "특이 복약 없음", schedule: "-" });
 
-  const chewingNote =
-    resident.age >= 85
-      ? "틀니 사용 · 질긴 육류는 다짐육으로 대체 권고"
-      : resident.age >= 80
-        ? "일반식 가능 · 질긴 음식은 주의가 필요해요"
-        : "저작·연하 상태 정상";
-
   const systolicBP = 118 + (has("고혈압") ? 24 : 0) + (s % 7);
   const fastingGlucose = 92 + (has("당뇨") ? 34 : 0) + (s % 10);
   const hba1c = Number((5.6 + (has("당뇨") ? 1.3 : 0) + (s % 5) * 0.1).toFixed(1));
   const egfr = 88 - (has("신장") ? 26 : 0) - Math.max(0, resident.age - 75);
+  const heightCm = (resident.gender === "여" ? 154 : 166) + (s % 5);
   const weightKg = (resident.gender === "여" ? 54 : 66) - Math.max(0, resident.age - 75) * 0.3;
   const albumin = Number((4.0 - (resident.risk === "고위험" ? 0.7 : 0.2) - (s % 4) * 0.05).toFixed(1));
 
@@ -152,17 +150,17 @@ export function getResidentDetail(resident: Resident): ResidentDetail {
   return {
     caseWorker: CASE_WORKERS[s % CASE_WORKERS.length],
     livingAlone: s % 2 === 0,
-    supportType: s % 3 === 0 ? "기초생활" : "차상위",
     diagnoses,
     allergies,
     medications,
-    chewingNote,
+    otherNote: resident.note,
     checkup: {
       date: "2026.05.14",
       systolicBP,
       fastingGlucose,
       hba1c,
       egfr,
+      heightCm,
       weightKg: Number(weightKg.toFixed(1)),
       albumin,
     },

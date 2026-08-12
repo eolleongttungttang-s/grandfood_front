@@ -1,14 +1,20 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Resident } from "@/lib/admin-residents";
 import { ResidentDetail } from "@/lib/admin-resident-detail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { MealImageUpload } from "@/components/admin/meal-image-upload";
+
+const RESIDENT_DETAIL_OVERRIDES_KEY = "grandfood_resident_detail_overrides";
 
 const MEAL_TONE_CLASS: Record<string, string> = {
   완식: "bg-foreground",
@@ -33,11 +39,114 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 
 export function ResidentDetailView({
   resident,
-  detail,
+  detail: initialDetail,
 }: {
   resident: Resident;
   detail: ResidentDetail;
 }) {
+  const [detail, setDetail] = useState(initialDetail);
+  const [editOpen, setEditOpen] = useState(false);
+  const [healthEditOpen, setHealthEditOpen] = useState(false);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      try {
+        const saved = window.localStorage.getItem(RESIDENT_DETAIL_OVERRIDES_KEY);
+        const overrides = saved
+          ? (JSON.parse(saved) as Record<string, ResidentDetail>)
+          : {};
+        if (overrides[resident.id]) setDetail(overrides[resident.id]);
+      } catch {
+        window.localStorage.removeItem(RESIDENT_DETAIL_OVERRIDES_KEY);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [resident.id]);
+
+  function saveMedicalInfo(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const diagnoses = String(form.get("diagnoses") ?? "")
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const allergies = String(form.get("allergies") ?? "")
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const medications = String(form.get("medications") ?? "")
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => {
+        const [name, ...scheduleParts] = item.split("/");
+        return {
+          name: name.trim(),
+          schedule: scheduleParts.join("/").trim() || "-",
+        };
+      });
+    const otherNote = String(form.get("otherNote") ?? "").trim();
+    const nextDetail = {
+      ...detail,
+      diagnoses,
+      allergies,
+      medications,
+      otherNote: otherNote || "-",
+    };
+
+    try {
+      const saved = window.localStorage.getItem(RESIDENT_DETAIL_OVERRIDES_KEY);
+      const overrides = saved
+        ? (JSON.parse(saved) as Record<string, ResidentDetail>)
+        : {};
+      window.localStorage.setItem(
+        RESIDENT_DETAIL_OVERRIDES_KEY,
+        JSON.stringify({ ...overrides, [resident.id]: nextDetail }),
+      );
+    } catch {
+      toast.error("수정 내용을 저장하지 못했습니다.");
+      return;
+    }
+
+    setDetail(nextDetail);
+    setEditOpen(false);
+    toast.success("질환·알레르기·복약 정보를 수정했습니다.");
+  }
+
+  function saveHealthInfo(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const heightCm = Number(form.get("heightCm"));
+    const weightKg = Number(form.get("weightKg"));
+    if (!heightCm || !weightKg) {
+      toast.error("키와 체중을 모두 입력해 주세요.");
+      return;
+    }
+
+    const nextDetail = {
+      ...detail,
+      checkup: { ...detail.checkup, heightCm, weightKg },
+    };
+    try {
+      const saved = window.localStorage.getItem(RESIDENT_DETAIL_OVERRIDES_KEY);
+      const overrides = saved
+        ? (JSON.parse(saved) as Record<string, ResidentDetail>)
+        : {};
+      window.localStorage.setItem(
+        RESIDENT_DETAIL_OVERRIDES_KEY,
+        JSON.stringify({ ...overrides, [resident.id]: nextDetail }),
+      );
+    } catch {
+      toast.error("수정 내용을 저장하지 못했습니다.");
+      return;
+    }
+
+    setDetail(nextDetail);
+    setHealthEditOpen(false);
+    toast.success("키와 체중을 수정했습니다.");
+  }
+
   const completeCount = detail.mealHistory.filter((m) => m === "완식").length;
   const smallCount = detail.mealHistory.filter((m) => m === "소량").length;
   const noResponseCount = detail.mealHistory.filter((m) => m === "미응답").length;
@@ -77,8 +186,8 @@ export function ResidentDetailView({
               {detail.livingAlone && <Badge variant="outline">독거</Badge>}
             </div>
             <span className="text-sm text-muted-foreground">
-              {resident.age}세 · {resident.gender} · {resident.address ?? resident.dong} · 수급 구분{" "}
-              {detail.supportType} · 담당 {detail.caseWorker}
+              {resident.age}세 · {resident.gender} · {resident.address ?? resident.dong} · 담당{" "}
+              {resident.caseWorker ?? detail.caseWorker}
             </span>
             <span className="text-sm text-muted-foreground">
               보호자 {resident.guardianName} {resident.guardianPhone} · 앱 연동됨
@@ -106,36 +215,47 @@ export function ResidentDetailView({
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-baseline justify-between">
+          <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-foreground">건강검진 데이터</h2>
-            <span className="text-xs text-muted-foreground">
-              {detail.checkup.date} 국가검진 연계
-            </span>
+            <Button type="button" variant="outline" size="sm" onClick={() => setHealthEditOpen(true)}>
+              <Pencil /> 수정
+            </Button>
           </div>
+          <span className="text-xs text-muted-foreground">{detail.checkup.date} 국가검진 연계</span>
           <DetailRow label="수축기 혈압">{detail.checkup.systolicBP} mmHg</DetailRow>
           <DetailRow label="공복혈당">{detail.checkup.fastingGlucose} mg/dL</DetailRow>
           <DetailRow label="당화혈색소">{detail.checkup.hba1c} %</DetailRow>
           <DetailRow label="eGFR (신기능)">{detail.checkup.egfr}</DetailRow>
+          <DetailRow label="키">{detail.checkup.heightCm ?? "-"} cm</DetailRow>
           <DetailRow label="체중">{detail.checkup.weightKg} kg</DetailRow>
           <DetailRow label="알부민">{detail.checkup.albumin} g/dL</DetailRow>
         </div>
 
         <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-sm font-bold text-foreground">질환 · 알레르기 · 복약</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-foreground">질환 · 알레르기 · 복약</h2>
+            <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+              <Pencil /> 수정
+            </Button>
+          </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold text-muted-foreground">진단 질환</span>
             <div className="flex flex-wrap gap-1.5">
-              {detail.diagnoses.map((d) => (
-                <Badge key={d} variant="secondary">
-                  {d}
-                </Badge>
-              ))}
+              {detail.diagnoses.length === 0 ? (
+                <span className="text-sm text-muted-foreground">없음</span>
+              ) : (
+                detail.diagnoses.map((d) => (
+                  <Badge key={d} variant="secondary">
+                    {d}
+                  </Badge>
+                ))
+              )}
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold text-muted-foreground">알레르기 · 금기</span>
             <div className="flex flex-wrap gap-1.5">
-              {detail.allergies[0] === "없음" ? (
+              {detail.allergies.length === 0 || detail.allergies[0] === "없음" ? (
                 <span className="text-sm text-muted-foreground">없음</span>
               ) : (
                 detail.allergies.map((a) => (
@@ -149,17 +269,21 @@ export function ResidentDetailView({
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold text-muted-foreground">복약</span>
             <div className="flex flex-col gap-1">
-              {detail.medications.map((m) => (
-                <div key={m.name} className="flex justify-between text-sm">
-                  <span className="text-foreground">{m.name}</span>
-                  <span className="text-muted-foreground">{m.schedule}</span>
-                </div>
-              ))}
+              {detail.medications.length === 0 ? (
+                <span className="text-sm text-muted-foreground">없음</span>
+              ) : (
+                detail.medications.map((m, index) => (
+                  <div key={`${m.name}-${index}`} className="flex justify-between gap-4 text-sm">
+                    <span className="text-foreground">{m.name}</span>
+                    <span className="text-right text-muted-foreground">{m.schedule}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-muted-foreground">저작 · 연하 상태</span>
-            <p className="text-sm text-foreground">{detail.chewingNote}</p>
+            <span className="text-xs font-semibold text-muted-foreground">기타</span>
+            <p className="text-sm text-foreground">{detail.otherNote ?? "-"}</p>
           </div>
         </div>
 
@@ -225,6 +349,135 @@ export function ResidentDetailView({
           ))}
         </div>
       </div>
+
+      {editOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="medical-info-edit-title"
+            className="max-h-full w-full max-w-xl overflow-y-auto rounded-2xl bg-card shadow-2xl"
+          >
+            <header className="flex items-start justify-between border-b border-border px-6 py-5">
+              <div>
+                <h2 id="medical-info-edit-title" className="text-xl font-bold">
+                  질환·알레르기·복약 수정
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {resident.name}님의 건강 관련 정보를 수정합니다.
+                </p>
+              </div>
+              <Button type="button" variant="ghost" size="icon-sm" onClick={() => setEditOpen(false)}>
+                <X />
+                <span className="sr-only">닫기</span>
+              </Button>
+            </header>
+            <form onSubmit={saveMedicalInfo} className="space-y-5 px-6 py-6">
+              <div className="space-y-2">
+                <Label htmlFor="edit-diagnoses">진단 질환</Label>
+                <Textarea
+                  id="edit-diagnoses"
+                  name="diagnoses"
+                  defaultValue={detail.diagnoses.join(", ")}
+                  placeholder="쉼표 또는 줄바꿈으로 구분해 주세요."
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-allergies">알레르기 및 금기</Label>
+                <Textarea
+                  id="edit-allergies"
+                  name="allergies"
+                  defaultValue={detail.allergies.join(", ")}
+                  placeholder="예: 우유, 견과류"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-medications">복약 정보</Label>
+                <Textarea
+                  id="edit-medications"
+                  name="medications"
+                  defaultValue={detail.medications
+                    .map((medication) => `${medication.name} / ${medication.schedule}`)
+                    .join("\n")}
+                  placeholder={"약 이름 / 복용법 형식으로 한 줄에 하나씩 입력해 주세요.\n예: 암로디핀 5mg / 1일 1회 아침"}
+                  rows={5}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-other-note">기타</Label>
+                <Textarea
+                  id="edit-other-note"
+                  name="otherNote"
+                  defaultValue={detail.otherNote ?? ""}
+                  placeholder="추가로 확인할 사항을 입력해 주세요."
+                />
+              </div>
+              <div className="flex justify-end gap-3 border-t border-border pt-5">
+                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                  취소
+                </Button>
+                <Button type="submit">저장</Button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {healthEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="health-info-edit-title"
+            className="w-full max-w-md rounded-2xl bg-card shadow-2xl"
+          >
+            <header className="flex items-start justify-between border-b border-border px-6 py-5">
+              <div>
+                <h2 id="health-info-edit-title" className="text-xl font-bold">키·체중 수정</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{resident.name}님의 측정값을 입력합니다.</p>
+              </div>
+              <Button type="button" variant="ghost" size="icon-sm" onClick={() => setHealthEditOpen(false)}>
+                <X />
+                <span className="sr-only">닫기</span>
+              </Button>
+            </header>
+            <form onSubmit={saveHealthInfo} className="space-y-5 px-6 py-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-height">키 (cm)</Label>
+                  <Input
+                    id="edit-height"
+                    name="heightCm"
+                    type="number"
+                    min={50}
+                    max={250}
+                    step="0.1"
+                    defaultValue={detail.checkup.heightCm === "-" ? "" : detail.checkup.heightCm}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-weight">체중 (kg)</Label>
+                  <Input
+                    id="edit-weight"
+                    name="weightKg"
+                    type="number"
+                    min={10}
+                    max={300}
+                    step="0.1"
+                    defaultValue={detail.checkup.weightKg === "-" ? "" : detail.checkup.weightKg}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-border pt-5">
+                <Button type="button" variant="outline" onClick={() => setHealthEditOpen(false)}>취소</Button>
+                <Button type="submit">저장</Button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

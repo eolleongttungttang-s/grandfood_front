@@ -36,7 +36,7 @@ export function ResidentDetailPageClient({
         const localResidents = saved ? (JSON.parse(saved) as Resident[]) : [];
         const localResident = localResidents.find((item) => item.id === residentId) ?? null;
         setResident(localResident);
-        setDetail(localResident ? getEmptyResidentDetail() : null);
+        setDetail(localResident ? getEmptyResidentDetail(localResident) : null);
       } catch {
         window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
       } finally {

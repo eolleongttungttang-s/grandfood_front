@@ -1,13 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { ImagePlus, Sparkles, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, ImagePlus, LoaderCircle, Sparkles, Trash2, Upload } from "lucide-react";
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -22,6 +22,19 @@ type MealImage = {
   file: File;
   previewUrl: string;
 };
+
+type DishAnalysis = {
+  name: string;
+  consumedPercent: number;
+  description: string;
+};
+
+const DEMO_ANALYSIS: DishAnalysis[] = [
+  { name: "잡곡밥", consumedPercent: 85, description: "대부분 섭취했습니다." },
+  { name: "된장국", consumedPercent: 70, description: "절반 이상 섭취했습니다." },
+  { name: "제육볶음", consumedPercent: 90, description: "거의 모두 섭취했습니다." },
+  { name: "시금치나물", consumedPercent: 60, description: "절반 정도 섭취했습니다." },
+];
 
 type ImageSlotProps = {
   badge: string;
@@ -173,9 +186,9 @@ export function MealImageUpload({
 }) {
   const [beforeImage, setBeforeImage] = useState<MealImage | null>(null);
   const [afterImage, setAfterImage] = useState<MealImage | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<DishAnalysis[] | null>(null);
   const [mealSlot, setMealSlot] = useState("");
-  const [comboId, setComboId] = useState("");
 
   useEffect(() => {
     const previewUrl = beforeImage?.previewUrl;
@@ -198,32 +211,31 @@ export function MealImageUpload({
     setter({ file, previewUrl: URL.createObjectURL(file) });
   };
 
-  const canAnalyze = Boolean(
-    beforeImage && afterImage && mealSlot && comboId.trim(),
-  );
+  const canAnalyze = Boolean(beforeImage && afterImage && mealSlot);
 
-  const uploadImages = async () => {
+  const analyzeImages = async () => {
     if (
       !beforeImage ||
       !afterImage ||
       !mealSlot ||
-      !comboId.trim() ||
-      isUploading
+      isAnalyzing
     )
       return;
 
-    const formData = new FormData();
-    formData.append("mealSlot", mealSlot);
-    formData.append("comboId", comboId.trim());
-    formData.append("beforePhoto", beforeImage.file);
-    formData.append("afterPhoto", afterImage.file);
-    setIsUploading(true);
-
+    setAnalysisResult(null);
+    setIsAnalyzing(true);
     try {
-      const apiUrl = getApiUrl();
+      const formData = new FormData();
+      formData.append("mealSlot", mealSlot);
+      formData.append(
+        "comboId",
+        `AUTO-${new Date().toISOString().slice(0, 10)}-${mealSlot}`,
+      );
+      formData.append("beforePhoto", beforeImage.file);
+      formData.append("afterPhoto", afterImage.file);
       const accessToken = readAdminSession()?.accessToken;
       const response = await fetch(
-        `${apiUrl}/wards/${encodeURIComponent(residentId)}/meal-logs`,
+        `${getApiUrl()}/wards/${encodeURIComponent(residentId)}/meal-logs`,
         {
           method: "POST",
           headers: accessToken
@@ -232,25 +244,22 @@ export function MealImageUpload({
           body: formData,
         },
       );
-
       const result = (await response.json().catch(() => null)) as
-        | { detail?: string; meal_id?: string }
+        | { detail?: string }
         | null;
       if (!response.ok) {
         throw new Error(result?.detail ?? "이미지를 저장하지 못했습니다.");
       }
 
-      toast.success("식사 전·후 이미지가 스토리지에 저장됐어요.");
-      setBeforeImage(null);
-      setAfterImage(null);
-      setMealSlot("");
-      setComboId("");
+      await new Promise((resolve) => window.setTimeout(resolve, 1800));
+      setAnalysisResult(DEMO_ANALYSIS);
+      toast.success("이미지 저장과 잔반 분석이 완료됐어요.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "이미지 업로드 중 오류가 발생했습니다.",
+        error instanceof Error ? error.message : "잔반 분석 중 오류가 발생했습니다.",
       );
     } finally {
-      setIsUploading(false);
+      setIsAnalyzing(false);
     }
   };
 
@@ -268,15 +277,15 @@ export function MealImageUpload({
         </div>
         <Button
           type="button"
-          disabled={!canAnalyze || isUploading}
-          onClick={uploadImages}
+          disabled={!canAnalyze || isAnalyzing}
+          onClick={analyzeImages}
         >
           <Sparkles className="h-4 w-4" />
-          {isUploading ? "스토리지에 저장 중..." : "잔반 분석 시작"}
+          {isAnalyzing ? "AI 분석 중..." : "잔반 분석 시작"}
         </Button>
       </div>
 
-      <div className="mt-5 grid gap-4 rounded-xl border border-border bg-muted/25 p-4 sm:grid-cols-2">
+      <div className="mt-5 rounded-xl border border-border bg-muted/25 p-4">
         <div className="space-y-2">
           <Label htmlFor="meal-slot">식사 구분</Label>
           <Select value={mealSlot} onValueChange={(value) => setMealSlot(value ?? "")}>
@@ -289,15 +298,6 @@ export function MealImageUpload({
               <SelectItem value="저녁">저녁</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="combo-id">반찬 조합 ID</Label>
-          <Input
-            id="combo-id"
-            value={comboId}
-            onChange={(event) => setComboId(event.target.value)}
-            placeholder="예: COMBO-0001"
-          />
         </div>
       </div>
 
@@ -322,15 +322,63 @@ export function MealImageUpload({
         />
       </div>
 
+      {(isAnalyzing || analysisResult) && (
+        <div className="mt-5 overflow-hidden rounded-xl border border-border bg-background">
+          {isAnalyzing ? (
+            <div className="flex min-h-52 flex-col items-center justify-center gap-4 px-6 py-10 text-center">
+              <div className="rounded-full bg-muted p-4">
+                <LoaderCircle className="h-7 w-7 animate-spin text-foreground" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-foreground">AI가 잔반을 분석하고 있어요</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  식사 전·후 사진을 비교해 반찬별 섭취량을 계산하는 중입니다.
+                </p>
+              </div>
+            </div>
+          ) : analysisResult ? (
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/35 px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-risk-normal-foreground" />
+                  <div>
+                    <h3 className="font-extrabold text-foreground">AI 잔반 분석 결과</h3>
+                    <p className="text-xs text-muted-foreground">반찬별 예상 섭취 비율입니다.</p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-foreground px-3 py-1 text-sm font-bold text-background">
+                  평균 {Math.round(analysisResult.reduce((sum, dish) => sum + dish.consumedPercent, 0) / analysisResult.length)}% 섭취
+                </span>
+              </div>
+              <div className="grid gap-4 p-5 sm:grid-cols-2">
+                {analysisResult.map((dish) => (
+                  <div key={dish.name} className="rounded-lg border border-border p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <span className="font-bold text-foreground">{dish.name}</span>
+                      <span className="text-sm font-extrabold text-foreground">{dish.consumedPercent}%</span>
+                    </div>
+                    <Progress value={dish.consumedPercent} />
+                    <p className="mt-2 text-xs text-muted-foreground">{dish.description}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
+                현재 결과는 화면 확인을 위한 시연 데이터이며, AI 분석 API 연결 후 실제 결과로 교체됩니다.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       <div className="mt-4 flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
         <span
           className={`h-2 w-2 rounded-full ${canAnalyze ? "bg-risk-normal-foreground" : "bg-muted-foreground/40"}`}
         />
-        {isUploading
-          ? "식사 전·후 이미지를 안전하게 저장하고 있어요."
+        {isAnalyzing
+          ? "AI가 반찬 종류와 섭취량을 분석하고 있어요."
           : canAnalyze
           ? "필수 정보와 두 장의 사진이 준비됐습니다. 잔반 분석을 시작할 수 있어요."
-          : "식사 구분, 반찬 조합 ID와 식사 전·후 사진을 모두 입력해 주세요."}
+          : "식사 구분과 식사 전·후 사진을 모두 입력해 주세요."}
       </div>
     </section>
   );

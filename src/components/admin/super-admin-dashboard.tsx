@@ -854,6 +854,15 @@ function CareFacilityRegistrationForm({
   );
 }
 
+function getSignupRequestScope() {
+  const session = readAdminSession();
+  if (session?.accessLevel === "SUPER_ADMIN") return "";
+  if (session?.accessLevel === "MUNICIPALITY_ADMIN" && session.facilityId) {
+    return `?facility_id=${encodeURIComponent(session.facilityId)}`;
+  }
+  return null;
+}
+
 function SignupApprovalPanel() {
   const [requests, setRequests] = useState<SignupRequestApiResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -861,8 +870,17 @@ function SignupApprovalPanel() {
 
   useEffect(() => {
     let cancelled = false;
+    const requestScope = getSignupRequestScope();
 
-    void getJson<SignupRequestApiResponse[]>("/api/signup/requests")
+    if (requestScope === null) {
+      const timeoutId = window.setTimeout(() => {
+        toast.error("소속 지자체 정보를 확인할 수 없어 가입 요청을 불러올 수 없습니다.");
+        setLoading(false);
+      }, 0);
+      return () => window.clearTimeout(timeoutId);
+    }
+
+    void getJson<SignupRequestApiResponse[]>(`/api/signup/requests${requestScope}`)
       .then((rows) => {
         if (!cancelled) setRequests(rows.filter((row) => row.status === "pending"));
       })
@@ -886,10 +904,16 @@ function SignupApprovalPanel() {
     requestId: string,
     status: "approved" | "rejected",
   ) {
+    const requestScope = getSignupRequestScope();
+    if (requestScope === null) {
+      toast.error("가입 요청 처리 권한을 확인할 수 없습니다.");
+      return;
+    }
+
     setProcessingId(requestId);
     try {
       await patchJson<SignupRequestApiResponse>(
-        `/api/signup/requests/${encodeURIComponent(requestId)}`,
+        `/api/signup/requests/${encodeURIComponent(requestId)}${requestScope}`,
         { status },
       );
       setRequests((current) =>
