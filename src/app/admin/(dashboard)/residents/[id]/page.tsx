@@ -1,6 +1,4 @@
-import { notFound } from "next/navigation";
-
-import { ResidentDetailView } from "@/components/admin/resident-detail-view";
+import { ResidentDetailPageClient } from "@/components/admin/resident-detail-page-client";
 import { getResidentDetail } from "@/lib/admin-resident-detail";
 import { RESIDENTS } from "@/lib/admin-residents";
 
@@ -15,9 +13,12 @@ export default async function AdminResidentDetailPage({
 }) {
   const { id } = await params;
   const resident = RESIDENTS.find((r) => r.id === id);
-  if (!resident) notFound();
 
-  const detail = getResidentDetail(resident);
-
-  return <ResidentDetailView resident={resident} detail={detail} />;
+  return (
+    <ResidentDetailPageClient
+      residentId={id}
+      initialResident={resident ?? null}
+      initialDetail={resident ? getResidentDetail(resident) : null}
+    />
+  );
 }

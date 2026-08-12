@@ -4,8 +4,8 @@ export type AccessLevel =
   | "SUPER_ADMIN"
   | "MUNICIPALITY_ADMIN"
   | "MUNICIPALITY_STAFF"
-  | "WELFARE_STAFF"
-  | "VENDOR_STAFF";
+  | "MUNICIPALITY_NUTRITIONIST"
+  | "CARE_FACILITY_ADMIN";
 
 export type AdminSession = {
   staffId?: string;
@@ -16,11 +16,22 @@ export type AdminSession = {
   facilityId?: string;
   facilityName?: string;
   facilityCode?: string;
+  careFacilityId?: string;
+  careFacilityName?: string;
+  careFacilityCode?: string;
+  facilityType?: string;
   role?: string;
 };
 
 export function createAdminSession(session: AdminSession) {
   return JSON.stringify(session);
+}
+
+export function getAdminOrganizationName(session: AdminSession | null) {
+  if (session?.accessLevel === "CARE_FACILITY_ADMIN") {
+    return session.careFacilityName ?? session.facilityName ?? "관할시설";
+  }
+  return session?.facilityName ?? "지자체";
 }
 
 export function readAdminSession(): AdminSession | null {
