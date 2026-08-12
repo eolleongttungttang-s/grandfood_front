@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { readAdminSession } from "@/lib/admin-auth";
-import { getApiUrl } from "@/lib/api";
+import { extractErrorMessage, getApiUrl } from "@/lib/api";
 
 type MealImage = {
   file: File;
@@ -245,10 +245,10 @@ export function MealImageUpload({
         },
       );
       const result = (await response.json().catch(() => null)) as
-        | { detail?: string }
+        | { detail?: unknown }
         | null;
       if (!response.ok) {
-        throw new Error(result?.detail ?? "이미지를 저장하지 못했습니다.");
+        throw new Error(extractErrorMessage(result?.detail, "이미지를 저장하지 못했습니다."));
       }
 
       await new Promise((resolve) => window.setTimeout(resolve, 1800));

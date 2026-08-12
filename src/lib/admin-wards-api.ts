@@ -1,0 +1,44 @@
+import { getJson } from "@/lib/api";
+import { Resident } from "@/lib/admin-residents";
+
+/** 백엔드 GET /gov/facility/wards 응답 항목 (organization/schemas.py의 WardSummaryResponse) —
+ * 진단명 구조화/식단 근거/최근 섭취기록처럼 아직 실제 데이터가 없는 값은 안 담겨 온다. */
+type WardSummary = {
+  id: string;
+  name: string;
+  age: number;
+  gender: "male" | "female" | null;
+  address: string;
+  facility_code: string | null;
+  condition_flags: string[];
+  guardian_name: string | null;
+  guardian_phone: string | null;
+};
+
+function toResident(ward: WardSummary): Resident {
+  return {
+    id: ward.id,
+    name: ward.name,
+    age: ward.age,
+    gender: ward.gender === "male" ? "남" : "여",
+    facilityCode: ward.facility_code ?? undefined,
+    address: ward.address,
+    dong: ward.address,
+    // admin-resident-detail.ts의 getResidentDetail이 이 문자열을 "·"로 쪼개 진단명
+    // 목록을 만드므로, 실제 condition_flags를 같은 구분자로 이어 붙인다.
+    condition: ward.condition_flags.length > 0 ? ward.condition_flags.join(" · ") : "특이사항 없음",
+    // 최근 응답/위험도는 아직 실제 데이터 소스가 없어 중립값으로 둔다 — 백엔드에
+    // 이상신호(health/alerts_service.py) 기반 위험도 API가 생기면 여기서 채워 넣으면 된다.
+    lastResponse: "-",
+    lastResponseTone: "neutral",
+    risk: "보통",
+    guardianName: ward.guardian_name ?? "미등록",
+    guardianPhone: ward.guardian_phone ?? "미등록",
+    note: "",
+  };
+}
+
+export async function fetchFacilityWards(): Promise<Resident[]> {
+  const wards = await getJson<WardSummary[]>("/gov/facility/wards");
+  return wards.map(toResident);
+}
