@@ -178,9 +178,11 @@ function ImageSlot({
 }
 
 export function MealImageUpload({
+  disabled = false,
   residentId,
   residentName,
 }: {
+  disabled?: boolean;
   residentId: string;
   residentName: string;
 }) {
@@ -214,6 +216,10 @@ export function MealImageUpload({
   const canAnalyze = Boolean(beforeImage && afterImage && mealSlot);
 
   const analyzeImages = async () => {
+    if (disabled) {
+      toast.error("화면에서 임시 등록한 대상자는 서버 등록 후 사진을 업로드할 수 있습니다.");
+      return;
+    }
     if (
       !beforeImage ||
       !afterImage ||
@@ -245,10 +251,16 @@ export function MealImageUpload({
         },
       );
       const result = (await response.json().catch(() => null)) as
-        | { detail?: string }
+        | { detail?: string | Array<{ loc?: Array<string | number>; msg?: string }> }
         | null;
       if (!response.ok) {
-        throw new Error(result?.detail ?? "이미지를 저장하지 못했습니다.");
+        const detail = result?.detail;
+        const message = typeof detail === "string"
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((item) => item.msg ?? item.loc?.join(".")).filter(Boolean).join("\n")
+            : "이미지를 저장하지 못했습니다.";
+        throw new Error(message);
       }
 
       await new Promise((resolve) => window.setTimeout(resolve, 1800));

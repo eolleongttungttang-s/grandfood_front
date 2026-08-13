@@ -6,10 +6,13 @@ import { ArrowUpDown, Download, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  mapWardsToResidents,
   Resident,
   RESIDENTS_STORAGE_KEY,
   RiskLevel,
+  type WardSummary,
 } from "@/lib/admin-residents";
+import { getJson } from "@/lib/api";
 import { readAdminSession } from "@/lib/admin-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,9 +67,26 @@ export function ResidentsTable({
   const [sortKey, setSortKey] = useState<SortKey>("no");
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
+  const [isLoadingResidents, setIsLoadingResidents] = useState(true);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
+    let cancelled = false;
+
+    async function loadResidents() {
+      try {
+        const wards = await getJson<WardSummary[]>("/gov/facility/wards");
+        if (cancelled) return;
+        setResidents(mapWardsToResidents(wards));
+      } catch (error) {
+        if (cancelled) return;
+        toast.error(error instanceof Error ? error.message : "대상자 명단을 불러오지 못했습니다.");
+
+        // API 연결 실패 시 기존 화면을 유지하되 데모 대상자는 업로드 대상에서 제외한다.
+        setResidents(data);
+      } finally {
+        if (!cancelled) setIsLoadingResidents(false);
+      }
+
       const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
       if (!saved) return;
 
@@ -75,13 +95,17 @@ export function ResidentsTable({
           ...resident,
           isPrototype: true,
         }));
-        setResidents([...data, ...localResidents]);
+        setResidents((current) => [...current, ...localResidents]);
       } catch {
         window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
       }
-    }, 0);
+    }
 
-    return () => window.clearTimeout(timeoutId);
+    void loadResidents();
+
+    return () => {
+      cancelled = true;
+    };
   }, [data]);
 
   const filtered = useMemo(() => {
@@ -115,7 +139,10 @@ export function ResidentsTable({
       RESIDENTS_STORAGE_KEY,
       JSON.stringify(nextLocalResidents),
     );
-    setResidents([...data, ...nextLocalResidents]);
+    setResidents((current) => [
+      ...current.filter((item) => !item.isPrototype && !item.id.startsWith("LOCAL-")),
+      ...nextLocalResidents,
+    ]);
     setRegisterOpen(false);
     setPage(1);
     toast.success(`${resident.name} 대상자를 등록했습니다.`);
@@ -123,7 +150,8 @@ export function ResidentsTable({
 
   const nextResidentId = String(
     residents.reduce((largest, resident) => {
-      const id = /^\d+$/.test(resident.id) ? Number(resident.id) : 0;
+      const displayId = resident.displayId ?? resident.id;
+      const id = /^\d+$/.test(displayId) ? Number(displayId) : 0;
       return Math.max(largest, id);
     }, 0) + 1,
   ).padStart(3, "0");
@@ -157,7 +185,7 @@ export function ResidentsTable({
       "위험도",
     ];
     const rows = filtered.map((r) => [
-      r.id,
+      r.displayId ?? r.id,
       r.name,
       r.facilityCode ?? "미지정",
       String(r.age),
@@ -291,7 +319,7 @@ export function ResidentsTable({
                   colSpan={8}
                   className="py-10 text-center text-sm text-muted-foreground"
                 >
-                  조건에 맞는 대상자가 없어요.
+                  {isLoadingResidents ? "대상자 정보를 불러오는 중입니다." : "조건에 맞는 대상자가 없어요."}
                 </TableCell>
               </TableRow>
             )}
@@ -301,7 +329,7 @@ export function ResidentsTable({
                 className="cursor-pointer"
                 onClick={() => router.push(`/admin/residents/${r.id}`)}
               >
-                <TableCell className="text-muted-foreground">{r.id}</TableCell>
+                <TableCell className="text-muted-foreground">{r.displayId ?? r.id}</TableCell>
                 <TableCell className="font-semibold text-foreground">
                   {r.name}
                 </TableCell>
@@ -419,7 +447,8 @@ function RegisterResidentDialog({
     if (!name || !age || !address || !facilityCode) return;
 
     onRegister({
-      id: nextResidentId,
+      id: `LOCAL-${crypto.randomUUID()}`,
+      displayId: nextResidentId,
       isPrototype: true,
       name,
       caseWorker: session?.name ?? session?.account ?? "-",

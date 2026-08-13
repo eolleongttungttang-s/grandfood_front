@@ -10,9 +10,13 @@ import {
   type ResidentDetail,
 } from "@/lib/admin-resident-detail";
 import {
+  mapWardsToResidents,
   type Resident,
   RESIDENTS_STORAGE_KEY,
+  type WardSummary,
 } from "@/lib/admin-residents";
+import { getJson } from "@/lib/api";
+import { toast } from "sonner";
 
 export function ResidentDetailPageClient({
   residentId,
@@ -30,21 +34,38 @@ export function ResidentDetailPageClient({
   useEffect(() => {
     if (initialResident) return;
 
-    const timeoutId = window.setTimeout(() => {
+    let cancelled = false;
+
+    async function loadResident() {
       try {
+        const wards = await getJson<WardSummary[]>("/gov/facility/wards");
+        const apiResident = mapWardsToResidents(wards).find((item) => item.id === residentId);
+        if (cancelled) return;
+        if (apiResident) {
+          setResident(apiResident);
+          setDetail(getEmptyResidentDetail(apiResident));
+          return;
+        }
+
         const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
         const localResidents = saved ? (JSON.parse(saved) as Resident[]) : [];
         const localResident = localResidents.find((item) => item.id === residentId) ?? null;
         setResident(localResident);
         setDetail(localResident ? getEmptyResidentDetail(localResident) : null);
-      } catch {
-        window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : "대상자 정보를 불러오지 못했습니다.");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    }, 0);
+    }
 
-    return () => window.clearTimeout(timeoutId);
+    void loadResident();
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialResident, residentId]);
 
   if (loading) {
