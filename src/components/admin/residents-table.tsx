@@ -13,6 +13,14 @@ import {
   type WardSummary,
 } from "@/lib/admin-residents";
 import { getJson } from "@/lib/api";
+import {
+  ACTIVITY_LEVEL_OPTIONS,
+  CONDITION_OPTIONS,
+  makeFoodRules,
+  splitItems,
+  type ActivityLevel,
+  type ConditionFlag,
+} from "@/lib/admin-ward-registration";
 import { readAdminSession } from "@/lib/admin-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -148,13 +156,17 @@ export function ResidentsTable({
     toast.success(`${resident.name} 대상자를 등록했습니다.`);
   }
 
-  const nextResidentId = String(
-    residents.reduce((largest, resident) => {
+  function getNextResidentId(facilityCode: string) {
+    return String(
+      residents
+        .filter((resident) => (resident.facilityCode ?? "") === facilityCode.trim())
+        .reduce((largest, resident) => {
       const displayId = resident.displayId ?? resident.id;
       const id = /^\d+$/.test(displayId) ? Number(displayId) : 0;
       return Math.max(largest, id);
-    }, 0) + 1,
-  ).padStart(3, "0");
+        }, 0) + 1,
+    ).padStart(3, "0");
+  }
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -382,7 +394,7 @@ export function ResidentsTable({
       </div>
       <RegisterResidentDialog
         open={registerOpen}
-        nextResidentId={nextResidentId}
+        getNextResidentId={getNextResidentId}
         onClose={() => setRegisterOpen(false)}
         onRegister={registerResident}
       />
@@ -392,16 +404,20 @@ export function ResidentsTable({
 
 function RegisterResidentDialog({
   open,
-  nextResidentId,
+  getNextResidentId,
   onClose,
   onRegister,
 }: {
   open: boolean;
-  nextResidentId: string;
+  getNextResidentId: (facilityCode: string) => string;
   onClose: () => void;
   onRegister: (resident: Resident) => void;
 }) {
   const [gender, setGender] = useState<Resident["gender"]>("여");
+  const [activityLevel, setActivityLevel] = useState<ActivityLevel>("sedentary");
+  const [conditionFlags, setConditionFlags] = useState<ConditionFlag[]>([]);
+  const [facilityCode, setFacilityCode] = useState("");
+  const nextResidentId = getNextResidentId(facilityCode);
 
   useEffect(() => {
     if (!open) return;
@@ -421,14 +437,16 @@ function RegisterResidentDialog({
     const session = readAdminSession();
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") ?? "").trim();
-    const age = Number(form.get("age"));
+    const birthDate = String(form.get("birthDate") ?? "");
+    const phone = String(form.get("phone") ?? "").trim();
     const address = String(form.get("address") ?? "").trim();
-    const facilityCode = String(form.get("facilityCode") ?? "").trim();
-    const condition = String(form.get("condition") ?? "").trim();
-    const allergies = String(form.get("allergies") ?? "")
-      .split(/[,\n]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
+    const normalizedFacilityCode = facilityCode.trim();
+    const heightCm = Number(form.get("heightCm"));
+    const weightKg = Number(form.get("weightKg"));
+    const conditionsNote = String(form.get("conditionsNote") ?? "").trim();
+    const allergies = splitItems(form.get("allergies"));
+    const dislikedIngredients = splitItems(form.get("dislikedIngredients"));
+    const restrictions = splitItems(form.get("restrictions"));
     const medications = String(form.get("medications") ?? "")
       .split("\n")
       .map((item) => item.trim())
@@ -444,20 +462,52 @@ function RegisterResidentDialog({
     const guardianPhone = String(form.get("guardianPhone") ?? "").trim();
     const note = String(form.get("note") ?? "").trim();
 
-    if (!name || !age || !address || !facilityCode) return;
+    if (!name || !birthDate || !phone || !address || !normalizedFacilityCode || !heightCm || !weightKg) return;
+
+    const birth = new Date(`${birthDate}T00:00:00`);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    if (
+      today.getMonth() < birth.getMonth() ||
+      (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())
+    ) age -= 1;
+    const foodRules = makeFoodRules(allergies, dislikedIngredients, restrictions);
+    const medicationsNote = String(form.get("medications") ?? "").trim();
 
     onRegister({
       id: `LOCAL-${crypto.randomUUID()}`,
       displayId: nextResidentId,
       isPrototype: true,
+      registrationDraft: {
+        facility_code: normalizedFacilityCode,
+        payload: {
+          name,
+          birth_date: birthDate,
+          gender: gender === "남" ? "male" : "female",
+          phone,
+          address,
+          height_cm: heightCm,
+          weight_kg: weightKg,
+          activity_level: activityLevel,
+          condition_flags: conditionFlags,
+          conditions_note: conditionsNote || null,
+          food_rules: foodRules,
+          guardian_name: guardianName || null,
+          guardian_phone: guardianPhone || null,
+          medications_note: medicationsNote || null,
+          note: note || null,
+        },
+      },
       name,
       caseWorker: session?.name ?? session?.account ?? "-",
       age,
       gender,
-      facilityCode,
+      facilityCode: normalizedFacilityCode,
       address,
       dong: address,
-      condition: condition || "특이사항 없음",
+      condition: CONDITION_OPTIONS.filter((option) => conditionFlags.includes(option.value))
+        .map((option) => option.label)
+        .join(" · ") || "특이사항 없음",
       allergies,
       medications,
       lastResponse: "등록 후 응답 없음",
@@ -507,16 +557,13 @@ function RegisterResidentDialog({
               <Input id="resident-name" name="name" placeholder="대상자 이름" required />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="resident-age">
-                나이 <span className="text-destructive">*</span>
+              <Label htmlFor="resident-birth-date">
+                생년월일 <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="resident-age"
-                name="age"
-                type="number"
-                min={1}
-                max={120}
-                placeholder="예: 78"
+                id="resident-birth-date"
+                name="birthDate"
+                type="date"
                 required
               />
             </div>
@@ -538,6 +585,12 @@ function RegisterResidentDialog({
               </Select>
             </div>
             <div className="space-y-2">
+              <Label htmlFor="resident-phone">
+                대상자 연락처 <span className="text-destructive">*</span>
+              </Label>
+              <Input id="resident-phone" name="phone" type="tel" placeholder="010-0000-0000" required />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="resident-address">
                 주소지 <span className="text-destructive">*</span>
               </Label>
@@ -555,6 +608,8 @@ function RegisterResidentDialog({
               <Input
                 id="resident-facility-code"
                 name="facilityCode"
+                value={facilityCode}
+                onChange={(event) => setFacilityCode(event.target.value)}
                 placeholder="예: GS-0001"
                 required
               />
@@ -562,13 +617,43 @@ function RegisterResidentDialog({
                 대상자를 관리하는 지자체의 기관코드를 입력해 주세요.
               </p>
             </div>
+            <div className="space-y-3 sm:col-span-2">
+              <Label>주요 질환 (중복 선택 가능)</Label>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {CONDITION_OPTIONS.map((option) => (
+                  <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={conditionFlags.includes(option.value)}
+                      onChange={(event) => setConditionFlags((current) =>
+                        event.target.checked
+                          ? [...current, option.value]
+                          : current.filter((value) => value !== option.value)
+                      )}
+                      className="h-4 w-4 accent-foreground"
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+              <Textarea name="conditionsNote" placeholder="기타 질환이나 참고사항을 입력해 주세요." rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resident-height">키(cm) <span className="text-destructive">*</span></Label>
+              <Input id="resident-height" name="heightCm" type="number" min={50} max={250} step="0.1" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resident-weight">체중(kg) <span className="text-destructive">*</span></Label>
+              <Input id="resident-weight" name="weightKg" type="number" min={10} max={300} step="0.1" required />
+            </div>
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="resident-condition">주요 질환 (선택)</Label>
-              <Textarea
-                id="resident-condition"
-                name="condition"
-                placeholder="예: 고혈압, 당뇨"
-              />
+              <Label htmlFor="resident-activity">평소 활동량 <span className="text-destructive">*</span></Label>
+              <Select value={activityLevel} onValueChange={(value) => setActivityLevel((value as ActivityLevel) ?? "sedentary")}>
+                <SelectTrigger id="resident-activity" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ACTIVITY_LEVEL_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="resident-allergies">알레르기 및 금기 (선택)</Label>
@@ -577,6 +662,14 @@ function RegisterResidentDialog({
                 name="allergies"
                 placeholder="쉼표 또는 줄바꿈으로 구분해 주세요. 예: 우유, 견과류"
               />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resident-dislikes">기피 식재료 (선택)</Label>
+              <Textarea id="resident-dislikes" name="dislikedIngredients" placeholder="쉼표 또는 줄바꿈으로 구분해 주세요. 예: 가지, 피망" />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resident-restrictions">식이 제한 (선택)</Label>
+              <Textarea id="resident-restrictions" name="restrictions" placeholder="쉼표 또는 줄바꿈으로 구분해 주세요. 예: 매운 음식, 딱딱한 음식" />
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="resident-medications">복약 정보 (선택)</Label>
