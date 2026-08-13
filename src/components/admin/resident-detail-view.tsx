@@ -164,7 +164,7 @@ export function ResidentDetailView({
           </Link>
           <span className="text-sidebar-foreground/40">/</span>
           <span className="font-semibold">
-            {resident.name} ({resident.id})
+            {resident.name} ({resident.displayId ?? resident.id})
           </span>
         </div>
         <span className="text-xs text-sidebar-foreground/60">
@@ -211,7 +211,10 @@ export function ResidentDetailView({
         </div>
       </div>
 
-      <MealImageUpload residentId={resident.id} residentName={resident.name} />
+      <MealImageUpload
+        residentId={resident.id}
+        residentName={resident.name}
+      />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">

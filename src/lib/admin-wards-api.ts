@@ -1,9 +1,10 @@
-import { getJson } from "@/lib/api";
+import { getJson, postJson } from "@/lib/api";
 import { Resident } from "@/lib/admin-residents";
+import type { CreateFacilityWardPayload } from "@/lib/admin-ward-registration";
 
 /** 백엔드 GET /gov/facility/wards 응답 항목 (organization/schemas.py의 WardSummaryResponse) —
  * 진단명 구조화/식단 근거/최근 섭취기록처럼 아직 실제 데이터가 없는 값은 안 담겨 온다. */
-type WardSummary = {
+export type WardSummary = {
   id: string;
   name: string;
   age: number;
@@ -13,9 +14,11 @@ type WardSummary = {
   condition_flags: string[];
   guardian_name: string | null;
   guardian_phone: string | null;
+  medications_note?: string | null;
+  note?: string | null;
 };
 
-function toResident(ward: WardSummary): Resident {
+export function toResident(ward: WardSummary): Resident {
   return {
     id: ward.id,
     name: ward.name,
@@ -34,11 +37,22 @@ function toResident(ward: WardSummary): Resident {
     risk: "보통",
     guardianName: ward.guardian_name ?? "미등록",
     guardianPhone: ward.guardian_phone ?? "미등록",
-    note: "",
+    note: ward.note ?? "",
   };
+}
+
+export async function createFacilityWard(payload: CreateFacilityWardPayload): Promise<Resident> {
+  const ward = await postJson<WardSummary>("/gov/facility/wards", { ...payload });
+  return toResident(ward);
 }
 
 export async function fetchFacilityWards(): Promise<Resident[]> {
   const wards = await getJson<WardSummary[]>("/gov/facility/wards");
-  return wards.map(toResident);
+  const facilitySequence = new Map<string, number>();
+  return wards.map((ward) => {
+    const facilityKey = ward.facility_code ?? "미지정";
+    const sequence = (facilitySequence.get(facilityKey) ?? 0) + 1;
+    facilitySequence.set(facilityKey, sequence);
+    return { ...toResident(ward), displayId: String(sequence).padStart(3, "0") };
+  });
 }

@@ -6,14 +6,10 @@ import Link from "next/link";
 import { ResidentDetailView } from "@/components/admin/resident-detail-view";
 import { buttonVariants } from "@/components/ui/button";
 import {
-  getEmptyResidentDetail,
   getResidentDetail,
   type ResidentDetail,
 } from "@/lib/admin-resident-detail";
-import {
-  type Resident,
-  RESIDENTS_STORAGE_KEY,
-} from "@/lib/admin-residents";
+import { type Resident } from "@/lib/admin-residents";
 import { fetchFacilityWards } from "@/lib/admin-wards-api";
 
 export function ResidentDetailPageClient({
@@ -35,40 +31,24 @@ export function ResidentDetailPageClient({
     let cancelled = false;
 
     async function resolve() {
-      // 1순위: 실제 백엔드 대상자(GET /gov/facility/wards) — 건강검진/복약/식단근거
-      // 패널은 아직 뒷받침할 데이터가 없어 getResidentDetail의 seed 기반 표시를 씀.
       try {
         const wards = await fetchFacilityWards();
-        const realResident = wards.find((item) => item.id === residentId) ?? null;
-        if (realResident) {
-          if (!cancelled) {
-            setResident(realResident);
-            setDetail(getResidentDetail(realResident));
-            setLoading(false);
-          }
+        const apiResident = wards.find((item) => item.id === residentId);
+        if (cancelled) return;
+        if (apiResident) {
+          setResident(apiResident);
+          setDetail(getResidentDetail(apiResident));
+          setLoading(false);
           return;
         }
       } catch {
-        // 백엔드 조회 실패는 조용히 넘어가고 로컬(프로토타입 등록) 대상자를 찾아본다.
+        // 목록 API 오류는 상위 화면과 동일하게 대상자를 찾지 못한 상태로 처리한다.
       }
 
-      // 2순위: "대상자 등록" 다이얼로그로 로컬에만 등록해둔 프로토타입 대상자.
-      try {
-        const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
-        const localResidents = saved ? (JSON.parse(saved) as Resident[]) : [];
-        const localResident = localResidents.find((item) => item.id === residentId) ?? null;
-        if (!cancelled) {
-          setResident(localResident);
-          setDetail(localResident ? getEmptyResidentDetail(localResident) : null);
-        }
-      } catch {
-        window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      if (!cancelled) setLoading(false);
     }
 
-    resolve();
+    void resolve();
     return () => {
       cancelled = true;
     };
