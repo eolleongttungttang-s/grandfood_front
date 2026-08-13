@@ -1,15 +1,9 @@
-import type { FacilityWardRegistrationDraft } from "@/lib/admin-ward-registration";
-
 export type RiskLevel = "고위험" | "주의" | "보통";
-
-export const RESIDENTS_STORAGE_KEY = "grandfood_test_residents";
 
 export type Resident = {
   id: string;
   /** 기관별 화면 표시 번호. 백엔드 요청에는 id(UUID)를 사용한다. */
   displayId?: string;
-  isPrototype?: boolean;
-  registrationDraft?: FacilityWardRegistrationDraft;
   name: string;
   caseWorker?: string;
   age: number;

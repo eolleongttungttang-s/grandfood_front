@@ -214,7 +214,6 @@ export function ResidentDetailView({
       <MealImageUpload
         residentId={resident.id}
         residentName={resident.name}
-        disabled={resident.isPrototype}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

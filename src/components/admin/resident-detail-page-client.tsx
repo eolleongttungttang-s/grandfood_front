@@ -6,14 +6,10 @@ import Link from "next/link";
 import { ResidentDetailView } from "@/components/admin/resident-detail-view";
 import { buttonVariants } from "@/components/ui/button";
 import {
-  getEmptyResidentDetail,
   getResidentDetail,
   type ResidentDetail,
 } from "@/lib/admin-resident-detail";
-import {
-  type Resident,
-  RESIDENTS_STORAGE_KEY,
-} from "@/lib/admin-residents";
+import { type Resident } from "@/lib/admin-residents";
 import { fetchFacilityWards } from "@/lib/admin-wards-api";
 
 export function ResidentDetailPageClient({
@@ -34,17 +30,6 @@ export function ResidentDetailPageClient({
 
     let cancelled = false;
 
-    function loadLocalResident() {
-      try {
-        const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
-        const localResidents = saved ? (JSON.parse(saved) as Resident[]) : [];
-        return localResidents.find((item) => item.id === residentId) ?? null;
-      } catch {
-        window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
-        return null;
-      }
-    }
-
     async function resolve() {
       try {
         const wards = await fetchFacilityWards();
@@ -57,15 +42,10 @@ export function ResidentDetailPageClient({
           return;
         }
       } catch {
-        // API 실패 시에도 아래 localStorage 대상자 조회를 계속한다.
+        // 목록 API 오류는 상위 화면과 동일하게 대상자를 찾지 못한 상태로 처리한다.
       }
 
-      if (!cancelled) {
-        const localResident = loadLocalResident();
-        setResident(localResident);
-        setDetail(localResident ? getEmptyResidentDetail(localResident) : null);
-        setLoading(false);
-      }
+      if (!cancelled) setLoading(false);
     }
 
     void resolve();

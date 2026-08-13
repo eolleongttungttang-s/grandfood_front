@@ -5,11 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowUpDown, Download, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  Resident,
-  RESIDENTS_STORAGE_KEY,
-  RiskLevel,
-} from "@/lib/admin-residents";
+import { Resident, RiskLevel } from "@/lib/admin-residents";
 import {
   ACTIVITY_LEVEL_OPTIONS,
   CONDITION_OPTIONS,
@@ -19,6 +15,7 @@ import {
   type ConditionFlag,
 } from "@/lib/admin-ward-registration";
 import { readAdminSession } from "@/lib/admin-auth";
+import { createFacilityWard } from "@/lib/admin-wards-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,21 +69,14 @@ export function ResidentsTable({
   const [sortKey, setSortKey] = useState<SortKey>("no");
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
+  const [canRegister, setCanRegister] = useState(false);
+  const [facilityCode, setFacilityCode] = useState("");
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
-      if (!saved) return;
-
-      try {
-        const localResidents = (JSON.parse(saved) as Resident[]).map((resident) => ({
-          ...resident,
-          isPrototype: true,
-        }));
-        setResidents((current) => [...current, ...localResidents]);
-      } catch {
-        window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
-      }
+      const session = readAdminSession();
+      setCanRegister(session?.accessLevel === "CARE_FACILITY_ADMIN");
+      setFacilityCode(session?.careFacilityCode ?? session?.facilityCode ?? "");
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
@@ -117,21 +107,11 @@ export function ResidentsTable({
   }, [residents, riskFilter, search, sortKey, sortAsc]);
 
   function registerResident(resident: Resident) {
-    const localResidents = residents.filter(
-      (item) => item.isPrototype || item.id.startsWith("LOCAL-"),
-    );
-    const nextLocalResidents = [...localResidents, resident];
-    window.localStorage.setItem(
-      RESIDENTS_STORAGE_KEY,
-      JSON.stringify(nextLocalResidents),
-    );
-    setResidents((current) => [
-      ...current.filter((item) => !item.isPrototype && !item.id.startsWith("LOCAL-")),
-      ...nextLocalResidents,
-    ]);
+    setResidents((current) => [...current, resident]);
     setRegisterOpen(false);
     setPage(1);
     toast.success(`${resident.name} 대상자를 등록했습니다.`);
+    router.push(`/admin/residents/${resident.id}`);
   }
 
   function getNextResidentId(facilityCode: string) {
@@ -209,10 +189,12 @@ export function ResidentsTable({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setRegisterOpen(true)}>
-              <Plus />
-              대상자 등록
-            </Button>
+            {canRegister && (
+              <Button variant="outline" size="sm" onClick={() => setRegisterOpen(true)}>
+                <Plus />
+                대상자 등록
+              </Button>
+            )}
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -372,7 +354,8 @@ export function ResidentsTable({
       </div>
       <RegisterResidentDialog
         open={registerOpen}
-        getNextResidentId={getNextResidentId}
+        facilityCode={facilityCode}
+        nextResidentId={getNextResidentId(facilityCode)}
         onClose={() => setRegisterOpen(false)}
         onRegister={registerResident}
       />
@@ -382,20 +365,21 @@ export function ResidentsTable({
 
 function RegisterResidentDialog({
   open,
-  getNextResidentId,
+  facilityCode,
+  nextResidentId,
   onClose,
   onRegister,
 }: {
   open: boolean;
-  getNextResidentId: (facilityCode: string) => string;
+  facilityCode: string;
+  nextResidentId: string;
   onClose: () => void;
   onRegister: (resident: Resident) => void;
 }) {
   const [gender, setGender] = useState<Resident["gender"]>("여");
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>("sedentary");
   const [conditionFlags, setConditionFlags] = useState<ConditionFlag[]>([]);
-  const [facilityCode, setFacilityCode] = useState("");
-  const nextResidentId = getNextResidentId(facilityCode);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -410,7 +394,7 @@ function RegisterResidentDialog({
 
   if (!open) return null;
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const session = readAdminSession();
     const form = new FormData(event.currentTarget);
@@ -418,7 +402,6 @@ function RegisterResidentDialog({
     const birthDate = String(form.get("birthDate") ?? "");
     const phone = String(form.get("phone") ?? "").trim();
     const address = String(form.get("address") ?? "").trim();
-    const normalizedFacilityCode = facilityCode.trim();
     const heightCm = Number(form.get("heightCm"));
     const weightKg = Number(form.get("weightKg"));
     const conditionsNote = String(form.get("conditionsNote") ?? "").trim();
@@ -440,61 +423,43 @@ function RegisterResidentDialog({
     const guardianPhone = String(form.get("guardianPhone") ?? "").trim();
     const note = String(form.get("note") ?? "").trim();
 
-    if (!name || !birthDate || !phone || !address || !normalizedFacilityCode || !heightCm || !weightKg) return;
+    if (!name || !birthDate || !phone || !address || !heightCm || !weightKg || submitting) return;
 
-    const birth = new Date(`${birthDate}T00:00:00`);
-    const today = new Date();
-    let age = today.getFullYear() - birth.getFullYear();
-    if (
-      today.getMonth() < birth.getMonth() ||
-      (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())
-    ) age -= 1;
     const foodRules = makeFoodRules(allergies, dislikedIngredients, restrictions);
     const medicationsNote = String(form.get("medications") ?? "").trim();
 
-    onRegister({
-      id: `LOCAL-${crypto.randomUUID()}`,
-      displayId: nextResidentId,
-      isPrototype: true,
-      registrationDraft: {
-        facility_code: normalizedFacilityCode,
-        payload: {
-          name,
-          birth_date: birthDate,
-          gender: gender === "남" ? "male" : "female",
-          phone,
-          address,
-          height_cm: heightCm,
-          weight_kg: weightKg,
-          activity_level: activityLevel,
-          condition_flags: conditionFlags,
-          conditions_note: conditionsNote || null,
-          food_rules: foodRules,
-          guardian_name: guardianName || null,
-          guardian_phone: guardianPhone || null,
-          medications_note: medicationsNote || null,
-          note: note || null,
-        },
-      },
-      name,
-      caseWorker: session?.name ?? session?.account ?? "-",
-      age,
-      gender,
-      facilityCode: normalizedFacilityCode,
-      address,
-      dong: address,
-      condition: CONDITION_OPTIONS.filter((option) => conditionFlags.includes(option.value))
-        .map((option) => option.label)
-        .join(" · ") || "특이사항 없음",
-      allergies,
-      medications,
-      lastResponse: "등록 후 응답 없음",
-      lastResponseTone: "neutral",
-      risk: "보통",
-      guardianName: guardianName || "미등록",
-      guardianPhone: guardianPhone || "미등록",
-      note: note || "등록된 메모가 없습니다.",
-    });
+    setSubmitting(true);
+    try {
+      const resident = await createFacilityWard({
+        name,
+        birth_date: birthDate,
+        gender: gender === "남" ? "male" : "female",
+        phone,
+        address,
+        height_cm: heightCm,
+        weight_kg: weightKg,
+        activity_level: activityLevel,
+        condition_flags: conditionFlags,
+        conditions_note: conditionsNote || null,
+        food_rules: foodRules,
+        guardian_name: guardianName || null,
+        guardian_phone: guardianPhone || null,
+        medications_note: medicationsNote || null,
+        note: note || null,
+      });
+      onRegister({
+        ...resident,
+        displayId: nextResidentId,
+        caseWorker: session?.name ?? session?.account ?? "-",
+        facilityCode: resident.facilityCode ?? facilityCode,
+        allergies,
+        medications,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "대상자를 등록하지 못했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -580,20 +545,11 @@ function RegisterResidentDialog({
               />
             </div>
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="resident-facility-code">
-                기관코드 <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="resident-facility-code"
-                name="facilityCode"
-                value={facilityCode}
-                onChange={(event) => setFacilityCode(event.target.value)}
-                placeholder="예: GS-0001"
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                대상자를 관리하는 지자체의 기관코드를 입력해 주세요.
-              </p>
+              <Label>소속 기관</Label>
+              <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm">
+                {facilityCode || "로그인한 담당자의 소속 시설"}
+              </div>
+              <p className="text-xs text-muted-foreground">소속 기관은 로그인한 담당자 정보로 자동 지정됩니다.</p>
             </div>
             <div className="space-y-3 sm:col-span-2">
               <Label>주요 질환 (중복 선택 가능)</Label>
@@ -686,11 +642,11 @@ function RegisterResidentDialog({
           </div>
 
           <div className="flex justify-end gap-3 border-t border-border pt-5">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
               취소
             </Button>
-            <Button type="submit">
-              <Plus /> 대상자 등록
+            <Button type="submit" disabled={submitting}>
+              <Plus /> {submitting ? "등록 중..." : "대상자 등록"}
             </Button>
           </div>
         </form>
