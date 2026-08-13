@@ -54,7 +54,7 @@ export function mapWardsToResidents(wards: WardSummary[]): Resident[] {
       displayId: String(sequence).padStart(3, "0"),
       name: ward.name,
       age: ward.age,
-      gender: ward.gender === "남" ? "남" : "여",
+      gender: ward.gender === "male" || ward.gender === "남" ? "남" : "여",
       facilityCode: ward.facility_code ?? undefined,
       address: ward.address,
       dong: ward.address,

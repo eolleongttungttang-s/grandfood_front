@@ -130,7 +130,9 @@ export function ResidentsTable({
     }
     const sorted = [...rows].sort((a, b) => {
       let diff = 0;
-      if (sortKey === "no") diff = a.id.localeCompare(b.id);
+      if (sortKey === "no") {
+        diff = (a.displayId ?? a.id).localeCompare(b.displayId ?? b.id);
+      }
       if (sortKey === "age") diff = a.age - b.age;
       if (sortKey === "risk") diff = RISK_ORDER[a.risk] - RISK_ORDER[b.risk];
       return sortAsc ? diff : -diff;

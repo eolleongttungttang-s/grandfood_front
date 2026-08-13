@@ -36,6 +36,17 @@ export function ResidentDetailPageClient({
 
     let cancelled = false;
 
+    function loadLocalResident() {
+      try {
+        const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
+        const localResidents = saved ? (JSON.parse(saved) as Resident[]) : [];
+        return localResidents.find((item) => item.id === residentId) ?? null;
+      } catch {
+        window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
+        return null;
+      }
+    }
+
     async function loadResident() {
       try {
         const wards = await getJson<WardSummary[]>("/gov/facility/wards");
@@ -47,14 +58,15 @@ export function ResidentDetailPageClient({
           return;
         }
 
-        const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
-        const localResidents = saved ? (JSON.parse(saved) as Resident[]) : [];
-        const localResident = localResidents.find((item) => item.id === residentId) ?? null;
+        const localResident = loadLocalResident();
         setResident(localResident);
         setDetail(localResident ? getEmptyResidentDetail(localResident) : null);
       } catch (error) {
         if (!cancelled) {
           toast.error(error instanceof Error ? error.message : "대상자 정보를 불러오지 못했습니다.");
+          const localResident = loadLocalResident();
+          setResident(localResident);
+          setDetail(localResident ? getEmptyResidentDetail(localResident) : null);
         }
       } finally {
         if (!cancelled) setLoading(false);

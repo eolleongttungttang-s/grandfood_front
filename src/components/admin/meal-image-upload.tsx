@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { readAdminSession } from "@/lib/admin-auth";
-import { getApiUrl } from "@/lib/api";
+import { extractErrorMessage, getApiUrl } from "@/lib/api";
 
 type MealImage = {
   file: File;
@@ -254,13 +254,7 @@ export function MealImageUpload({
         | { detail?: string | Array<{ loc?: Array<string | number>; msg?: string }> }
         | null;
       if (!response.ok) {
-        const detail = result?.detail;
-        const message = typeof detail === "string"
-          ? detail
-          : Array.isArray(detail)
-            ? detail.map((item) => item.msg ?? item.loc?.join(".")).filter(Boolean).join("\n")
-            : "이미지를 저장하지 못했습니다.";
-        throw new Error(message);
+        throw new Error(extractErrorMessage(result?.detail, "이미지를 저장하지 못했습니다."));
       }
 
       await new Promise((resolve) => window.setTimeout(resolve, 1800));

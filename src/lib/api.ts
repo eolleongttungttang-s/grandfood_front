@@ -21,6 +21,26 @@ export class ApiError extends Error {
   }
 }
 
+type ApiErrorDetail =
+  | string
+  | Array<{ loc?: Array<string | number>; msg?: string }>
+  | null
+  | undefined;
+
+export function extractErrorMessage(
+  detail: ApiErrorDetail,
+  fallback = "API 요청에 실패했습니다.",
+) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => item.msg ?? item.loc?.join("."))
+      .filter((message): message is string => Boolean(message));
+    if (messages.length > 0) return messages.join("\n");
+  }
+  return fallback;
+}
+
 function getAccessToken() {
   if (typeof window === "undefined") return null;
 
@@ -45,12 +65,12 @@ function createHeaders(hasJsonBody = false) {
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const result = (await response.json().catch(() => null)) as
-    | (T & { detail?: string })
+    | (T & { detail?: ApiErrorDetail })
     | null;
 
   if (!response.ok) {
     throw new ApiError(
-      result?.detail ?? `API 요청에 실패했습니다. (${response.status})`,
+      extractErrorMessage(result?.detail, `API 요청에 실패했습니다. (${response.status})`),
       response.status,
     );
   }
