@@ -6,13 +6,10 @@ import { ArrowUpDown, Download, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
-  mapWardsToResidents,
   Resident,
   RESIDENTS_STORAGE_KEY,
   RiskLevel,
-  type WardSummary,
 } from "@/lib/admin-residents";
-import { getJson } from "@/lib/api";
 import {
   ACTIVITY_LEVEL_OPTIONS,
   CONDITION_OPTIONS,
@@ -75,26 +72,9 @@ export function ResidentsTable({
   const [sortKey, setSortKey] = useState<SortKey>("no");
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
-  const [isLoadingResidents, setIsLoadingResidents] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadResidents() {
-      try {
-        const wards = await getJson<WardSummary[]>("/gov/facility/wards");
-        if (cancelled) return;
-        setResidents(mapWardsToResidents(wards));
-      } catch (error) {
-        if (cancelled) return;
-        toast.error(error instanceof Error ? error.message : "대상자 명단을 불러오지 못했습니다.");
-
-        // API 연결 실패 시 기존 화면을 유지하되 데모 대상자는 업로드 대상에서 제외한다.
-        setResidents(data);
-      } finally {
-        if (!cancelled) setIsLoadingResidents(false);
-      }
-
+    const timeoutId = window.setTimeout(() => {
       const saved = window.localStorage.getItem(RESIDENTS_STORAGE_KEY);
       if (!saved) return;
 
@@ -107,13 +87,9 @@ export function ResidentsTable({
       } catch {
         window.localStorage.removeItem(RESIDENTS_STORAGE_KEY);
       }
-    }
+    }, 0);
 
-    void loadResidents();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => window.clearTimeout(timeoutId);
   }, [data]);
 
   const filtered = useMemo(() => {
@@ -333,7 +309,7 @@ export function ResidentsTable({
                   colSpan={8}
                   className="py-10 text-center text-sm text-muted-foreground"
                 >
-                  {isLoadingResidents ? "대상자 정보를 불러오는 중입니다." : "조건에 맞는 대상자가 없어요."}
+                  조건에 맞는 대상자가 없어요.
                 </TableCell>
               </TableRow>
             )}

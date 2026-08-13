@@ -251,7 +251,7 @@ export function MealImageUpload({
         },
       );
       const result = (await response.json().catch(() => null)) as
-        | { detail?: string | Array<{ loc?: Array<string | number>; msg?: string }> }
+        | { detail?: unknown }
         | null;
       if (!response.ok) {
         throw new Error(extractErrorMessage(result?.detail, "이미지를 저장하지 못했습니다."));

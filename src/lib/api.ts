@@ -21,26 +21,6 @@ export class ApiError extends Error {
   }
 }
 
-type ApiErrorDetail =
-  | string
-  | Array<{ loc?: Array<string | number>; msg?: string }>
-  | null
-  | undefined;
-
-export function extractErrorMessage(
-  detail: ApiErrorDetail,
-  fallback = "API 요청에 실패했습니다.",
-) {
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    const messages = detail
-      .map((item) => item.msg ?? item.loc?.join("."))
-      .filter((message): message is string => Boolean(message));
-    if (messages.length > 0) return messages.join("\n");
-  }
-  return fallback;
-}
-
 function getAccessToken() {
   if (typeof window === "undefined") return null;
 
@@ -63,9 +43,23 @@ function createHeaders(hasJsonBody = false) {
   return headers;
 }
 
+/** FastAPI의 422는 detail이 문자열이 아니라 밸리데이션 에러 객체 배열
+ * ([{loc, msg, type}, ...])로 온다 — 이걸 그대로 Error 메시지에 넣으면
+ * "[object Object]"로 보인다. 문자열이면 그대로, 배열이면 msg들을 이어 붙인다. */
+export function extractErrorMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const messages = detail
+      .map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : null))
+      .filter((msg): msg is string => Boolean(msg));
+    if (messages.length > 0) return messages.join(" / ");
+  }
+  return fallback;
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const result = (await response.json().catch(() => null)) as
-    | (T & { detail?: ApiErrorDetail })
+    | (T & { detail?: unknown })
     | null;
 
   if (!response.ok) {

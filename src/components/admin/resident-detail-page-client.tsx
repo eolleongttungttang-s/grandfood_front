@@ -7,16 +7,14 @@ import { ResidentDetailView } from "@/components/admin/resident-detail-view";
 import { buttonVariants } from "@/components/ui/button";
 import {
   getEmptyResidentDetail,
+  getResidentDetail,
   type ResidentDetail,
 } from "@/lib/admin-resident-detail";
 import {
-  mapWardsToResidents,
   type Resident,
   RESIDENTS_STORAGE_KEY,
-  type WardSummary,
 } from "@/lib/admin-residents";
-import { getJson } from "@/lib/api";
-import { toast } from "sonner";
+import { fetchFacilityWards } from "@/lib/admin-wards-api";
 
 export function ResidentDetailPageClient({
   residentId,
@@ -47,34 +45,30 @@ export function ResidentDetailPageClient({
       }
     }
 
-    async function loadResident() {
+    async function resolve() {
       try {
-        const wards = await getJson<WardSummary[]>("/gov/facility/wards");
-        const apiResident = mapWardsToResidents(wards).find((item) => item.id === residentId);
+        const wards = await fetchFacilityWards();
+        const apiResident = wards.find((item) => item.id === residentId);
         if (cancelled) return;
         if (apiResident) {
           setResident(apiResident);
-          setDetail(getEmptyResidentDetail(apiResident));
+          setDetail(getResidentDetail(apiResident));
+          setLoading(false);
           return;
         }
+      } catch {
+        // API 실패 시에도 아래 localStorage 대상자 조회를 계속한다.
+      }
 
+      if (!cancelled) {
         const localResident = loadLocalResident();
         setResident(localResident);
         setDetail(localResident ? getEmptyResidentDetail(localResident) : null);
-      } catch (error) {
-        if (!cancelled) {
-          toast.error(error instanceof Error ? error.message : "대상자 정보를 불러오지 못했습니다.");
-          const localResident = loadLocalResident();
-          setResident(localResident);
-          setDetail(localResident ? getEmptyResidentDetail(localResident) : null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     }
 
-    void loadResident();
-
+    void resolve();
     return () => {
       cancelled = true;
     };
