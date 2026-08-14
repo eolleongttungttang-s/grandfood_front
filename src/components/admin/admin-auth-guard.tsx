@@ -9,10 +9,12 @@ export function AdminAuthGuard({
   children,
   requiredAccessLevel,
   allowedAccessLevels,
+  unauthorizedRedirectTo = "/admin/residents",
 }: {
   children: React.ReactNode;
   requiredAccessLevel?: AccessLevel;
   allowedAccessLevels?: readonly AccessLevel[];
+  unauthorizedRedirectTo?: string;
 }) {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -25,18 +27,18 @@ export function AdminAuthGuard({
     }
 
     if (requiredAccessLevel && session.accessLevel !== requiredAccessLevel) {
-      router.replace("/admin/residents");
+      router.replace(unauthorizedRedirectTo);
       return;
     }
 
     if (allowedAccessLevels && !allowedAccessLevels.includes(session.accessLevel)) {
-      router.replace("/admin/residents");
+      router.replace(unauthorizedRedirectTo);
       return;
     }
 
     const timeoutId = window.setTimeout(() => setIsAuthenticated(true), 0);
     return () => window.clearTimeout(timeoutId);
-  }, [allowedAccessLevels, requiredAccessLevel, router]);
+  }, [allowedAccessLevels, requiredAccessLevel, router, unauthorizedRedirectTo]);
 
   if (!isAuthenticated) {
     return (

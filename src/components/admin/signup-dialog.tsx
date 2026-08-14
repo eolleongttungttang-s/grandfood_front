@@ -27,11 +27,14 @@ type OrganizationType = "MUNICIPALITY" | "NURSING_HOME" | "WELFARE_CENTER";
 const ROLE_OPTIONS: Record<OrganizationType, Array<{ value: string; label: string }>> = {
   MUNICIPALITY: [
     { value: "지자체 일반 담당자", label: "지자체 일반 담당자" },
-    { value: "지자체 영양사", label: "지자체 영양사" },
   ],
-  NURSING_HOME: [{ value: "요양원 관리자", label: "요양원 관리자" }],
+  NURSING_HOME: [
+    { value: "요양원 관리자", label: "요양원 관리자" },
+    { value: "요양원 영양사", label: "요양원 영양사" },
+  ],
   WELFARE_CENTER: [
     { value: "사회복지기관 관리자", label: "사회복지기관 관리자" },
+    { value: "사회복지기관 영양사", label: "사회복지기관 영양사" },
   ],
 };
 

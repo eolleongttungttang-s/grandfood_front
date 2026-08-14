@@ -1,5 +1,7 @@
 export type RiskLevel = "고위험" | "주의" | "보통";
 
+export const RESIDENT_CASE_WORKERS_STORAGE_KEY = "grandfood_resident_case_workers";
+
 export type Resident = {
   id: string;
   /** 기관별 화면 표시 번호. 백엔드 요청에는 id(UUID)를 사용한다. */
@@ -22,46 +24,6 @@ export type Resident = {
   guardianPhone: string;
   note: string;
 };
-
-export type WardSummary = {
-  id: string;
-  name: string;
-  age: number;
-  gender: string | null;
-  address: string;
-  facility_code: string | null;
-  condition_flags: string[];
-  guardian_name: string | null;
-  guardian_phone: string | null;
-};
-
-export function mapWardsToResidents(wards: WardSummary[]): Resident[] {
-  const facilitySequence = new Map<string, number>();
-
-  return wards.map((ward) => {
-    const facilityKey = ward.facility_code ?? "미지정";
-    const sequence = (facilitySequence.get(facilityKey) ?? 0) + 1;
-    facilitySequence.set(facilityKey, sequence);
-
-    return {
-      id: ward.id,
-      displayId: String(sequence).padStart(3, "0"),
-      name: ward.name,
-      age: ward.age,
-      gender: ward.gender === "male" || ward.gender === "남" ? "남" : "여",
-      facilityCode: ward.facility_code ?? undefined,
-      address: ward.address,
-      dong: ward.address,
-      condition: ward.condition_flags.join(" · ") || "특이사항 없음",
-      lastResponse: "응답 정보 없음",
-      lastResponseTone: "neutral",
-      risk: "보통",
-      guardianName: ward.guardian_name ?? "미등록",
-      guardianPhone: ward.guardian_phone ?? "미등록",
-      note: "등록된 메모가 없습니다.",
-    };
-  });
-}
 
 export const RESIDENTS: Resident[] = [
   {

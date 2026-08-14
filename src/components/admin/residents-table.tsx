@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { ArrowUpDown, Download, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { Resident, RiskLevel } from "@/lib/admin-residents";
+import {
+  Resident,
+  RESIDENT_CASE_WORKERS_STORAGE_KEY,
+  RiskLevel,
+} from "@/lib/admin-residents";
 import {
   ACTIVITY_LEVEL_OPTIONS,
   CONDITION_OPTIONS,
@@ -107,6 +111,20 @@ export function ResidentsTable({
   }, [residents, riskFilter, search, sortKey, sortAsc]);
 
   function registerResident(resident: Resident) {
+    if (resident.caseWorker) {
+      try {
+        const saved = window.localStorage.getItem(RESIDENT_CASE_WORKERS_STORAGE_KEY);
+        const caseWorkers = saved
+          ? (JSON.parse(saved) as Record<string, string>)
+          : {};
+        window.localStorage.setItem(
+          RESIDENT_CASE_WORKERS_STORAGE_KEY,
+          JSON.stringify({ ...caseWorkers, [resident.id]: resident.caseWorker }),
+        );
+      } catch {
+        window.localStorage.removeItem(RESIDENT_CASE_WORKERS_STORAGE_KEY);
+      }
+    }
     setResidents((current) => [...current, resident]);
     setRegisterOpen(false);
     setPage(1);
@@ -450,7 +468,8 @@ function RegisterResidentDialog({
       onRegister({
         ...resident,
         displayId: nextResidentId,
-        caseWorker: session?.name ?? session?.account ?? "-",
+        caseWorker:
+          [session?.name ?? session?.account, session?.role].filter(Boolean).join(" ") || "-",
         facilityCode: resident.facilityCode ?? facilityCode,
         allergies,
         medications,

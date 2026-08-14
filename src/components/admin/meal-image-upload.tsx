@@ -178,11 +178,9 @@ function ImageSlot({
 }
 
 export function MealImageUpload({
-  disabled = false,
   residentId,
   residentName,
 }: {
-  disabled?: boolean;
   residentId: string;
   residentName: string;
 }) {
@@ -216,10 +214,6 @@ export function MealImageUpload({
   const canAnalyze = Boolean(beforeImage && afterImage && mealSlot);
 
   const analyzeImages = async () => {
-    if (disabled) {
-      toast.error("화면에서 임시 등록한 대상자는 서버 등록 후 사진을 업로드할 수 있습니다.");
-      return;
-    }
     if (
       !beforeImage ||
       !afterImage ||
