@@ -57,8 +57,7 @@ export function AppSidebar() {
     isSuperAdmin || session?.accessLevel === "MUNICIPALITY_ADMIN";
   const canUseMapMonitoring =
     isSuperAdmin ||
-    session?.accessLevel === "MUNICIPALITY_ADMIN" ||
-    session?.accessLevel === "MUNICIPALITY_STAFF";
+    session?.accessLevel === "MUNICIPALITY_ADMIN";
   const managementPath = isSuperAdmin
     ? "/admin/dashboard?section=registration"
     : "/admin/dashboard?section=approvals";
@@ -135,7 +134,7 @@ export function AppSidebar() {
                     {item.href === "/admin/statistics-empty" &&
                       pathname.startsWith("/admin/statistics-empty") && (
                         <SidebarMenuSub>
-                          {canUseMapMonitoring && <SidebarMenuSubItem>
+                          <SidebarMenuSubItem>
                             <SidebarMenuSubButton
                               isActive={pathname === "/admin/statistics-empty"}
                               render={<Link href="/admin/statistics-empty" />}
@@ -143,8 +142,8 @@ export function AppSidebar() {
                               <ChartNoAxesCombined />
                               <span>현황 대시보드</span>
                             </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>}
-                          <SidebarMenuSubItem>
+                          </SidebarMenuSubItem>
+                          {canUseMapMonitoring && <SidebarMenuSubItem>
                             <SidebarMenuSubButton
                               isActive={pathname === "/admin/statistics-empty/map"}
                               render={<Link href="/admin/statistics-empty/map" />}
@@ -152,7 +151,7 @@ export function AppSidebar() {
                               <MapPinned />
                               <span>지도 모니터링</span>
                             </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
+                          </SidebarMenuSubItem>}
                         </SidebarMenuSub>
                       )}
                   </SidebarMenuItem>

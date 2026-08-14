@@ -9,11 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getJson } from "@/lib/api";
 import type { WardSummary } from "@/lib/admin-wards-api";
+import { projectMapFeatures, type MapGeometry } from "@/lib/admin-map-geometry";
 
 type MapLevel = "sido" | "sigungu";
-type Position = [number, number];
-type Geometry = { type: "Polygon"; coordinates: Position[][] } | { type: "MultiPolygon"; coordinates: Position[][][] };
-type RegionFeature = { type: "Feature"; properties: { code: string; name: string }; geometry: Geometry };
+type RegionFeature = { type: "Feature"; properties: { code: string; name: string }; geometry: MapGeometry };
 type FeatureCollection = { type: "FeatureCollection"; features: RegionFeature[] };
 type FacilityRow = {
   facility_id: string;
@@ -22,7 +21,6 @@ type FacilityRow = {
   department: string | null;
   facility_code: string;
 };
-type LabelPlacement = { x: number; y: number; width: number; height: number };
 
 const PUBLIC_GEOJSON_URL: Record<MapLevel, string> = {
   sido: "https://raw.githubusercontent.com/southkorea/southkorea-maps/master/kostat/2013/json/skorea_provinces_geo_simple.json",
@@ -45,7 +43,7 @@ const SEOUL_DISTRICT_PREFIX_BY_REGION_CODE: Record<string, string> = {
   "11620": "GA", "11650": "SC", "11680": "GN", "11710": "SP", "11740": "GD",
 };
 
-function normalizePublicFeatures(data: { features?: Array<{ type: "Feature"; properties: Record<string, string>; geometry: Geometry }> }, level: MapLevel, parentCode: string | null): RegionFeature[] {
+function normalizePublicFeatures(data: { features?: Array<{ type: "Feature"; properties: Record<string, string>; geometry: MapGeometry }> }, level: MapLevel, parentCode: string | null): RegionFeature[] {
   return (data.features ?? [])
     .map((feature) => ({
       type: "Feature" as const,
@@ -64,45 +62,20 @@ async function fetchPublicBoundaries(level: MapLevel, parentCode: string | null)
   return normalizePublicFeatures(await response.json(), level, parentCode);
 }
 
-function geometryRings(geometry: Geometry): Position[][] {
-  return geometry.type === "Polygon" ? geometry.coordinates : geometry.coordinates.flat();
-}
-
-function projection(features: RegionFeature[]) {
-  const points = features.flatMap((feature) => geometryRings(feature.geometry).flat());
-  if (!points.length) return null;
-  const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-  const padding = 28;
-  const scale = Math.min((500 - padding * 2) / Math.max(maxX - minX, Number.EPSILON), (500 - padding * 2) / Math.max(maxY - minY, Number.EPSILON));
-  return { minX, minY, maxY, scale, offsetX: (500 - (maxX - minX) * scale) / 2, offsetY: (500 - (maxY - minY) * scale) / 2 };
-}
-
-function featurePaths(features: RegionFeature[]) {
-  const p = projection(features);
-  if (!p) return new Map<string, string>();
-  return new Map(features.map((feature) => [feature.properties.code, geometryRings(feature.geometry).map((ring) => ring.map(([x, y], index) => `${index ? "L" : "M"}${p.offsetX + (x - p.minX) * p.scale} ${500 - p.offsetY - (y - p.minY) * p.scale}`).join(" ") + " Z").join(" ")]));
-}
-
-function featureLabels(features: RegionFeature[]): Map<string, LabelPlacement> {
-  const p = projection(features);
-  if (!p) return new Map();
-  return new Map(features.map((feature) => {
-    const points = geometryRings(feature.geometry).flat();
-    const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
-    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    return [feature.properties.code, {
-      x: p.offsetX + ((minX + maxX) / 2 - p.minX) * p.scale,
-      y: 500 - p.offsetY - ((minY + maxY) / 2 - p.minY) * p.scale,
-      width: (maxX - minX) * p.scale,
-      height: (maxY - minY) * p.scale,
-    }];
-  }));
-}
-
 function belongsToRegion(facility: FacilityRow, regionName: string) {
-  const shortName = regionName.replace(/특별시|광역시|특별자치시|특별자치도|도$/u, "");
-  return [facility.department, facility.name].some((value) => value?.includes(regionName) || value?.includes(shortName));
+  const aliases: Record<string, string[]> = {
+    서울특별시: ["서울"], 부산광역시: ["부산"], 대구광역시: ["대구"],
+    인천광역시: ["인천"], 광주광역시: ["광주"], 대전광역시: ["대전"],
+    울산광역시: ["울산"], 세종특별자치시: ["세종"], 경기도: ["경기"],
+    강원도: ["강원"], 강원특별자치도: ["강원"], 충청북도: ["충북"],
+    충청남도: ["충남"], 전라북도: ["전북"], 전북특별자치도: ["전북"],
+    전라남도: ["전남"], 경상북도: ["경북"], 경상남도: ["경남"],
+    제주특별자치도: ["제주"],
+  };
+  const names = [regionName, ...(aliases[regionName] ?? [])];
+  return [facility.department, facility.name].some(
+    (value) => value ? names.some((name) => value.includes(name)) : false,
+  );
 }
 
 function municipalityForRegion(facilities: FacilityRow[], feature: RegionFeature) {
@@ -161,8 +134,9 @@ export function ApiMapMonitoringDashboard() {
 
   useEffect(() => { const id = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(id); }, [load]);
 
-  const pathByCode = useMemo(() => featurePaths(features), [features]);
-  const labelByCode = useMemo(() => featureLabels(features), [features]);
+  const projection = useMemo(() => projectMapFeatures(features, (feature) => feature.properties.code), [features]);
+  const pathByCode = projection.paths;
+  const labelByCode = projection.labels;
   const selectedFeature = features.find((item) => item.properties.code === selectedCode) ?? null;
   const selectedMunicipality = useMemo(() => selectedFeature && level === "sigungu" ? municipalityForRegion(facilities, selectedFeature) : null, [facilities, level, selectedFeature]);
   const selectedFacilities = useMemo(() => {

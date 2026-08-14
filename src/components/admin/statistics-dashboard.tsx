@@ -57,8 +57,10 @@ const selectClassName =
 
 export function StatisticsDashboard({
   facilities = CARE_FACILITIES,
+  scopeLabel = "전체",
 }: {
   facilities?: CareFacility[];
+  scopeLabel?: "시설" | "관할" | "전체";
 }) {
   const [region, setRegion] = useState("전체");
   const [municipality, setMunicipality] = useState("전체");
@@ -153,7 +155,7 @@ export function StatisticsDashboard({
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
       <PageHeader
         title="통합 급식 모니터링"
-        description="지역부터 산하 요양원·복지기관까지 식사 기록과 건강 이상 징후를 한눈에 확인합니다."
+        description={`${scopeLabel} 범위의 요양원·복지기관 식사 기록과 건강 이상 징후를 확인합니다.`}
         action={<Badge variant="secondary">오늘 14:30 기준</Badge>}
       />
 
@@ -199,7 +201,6 @@ export function StatisticsDashboard({
               }}
             >
               <option>전체</option>
-              <option>지자체</option>
               <option>요양원</option>
               <option>사회복지기관</option>
             </select>
@@ -212,8 +213,8 @@ export function StatisticsDashboard({
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
-          { label: "산하 시설", value: filteredFacilities.length, unit: "곳", icon: Building2, tone: "text-sky-600 bg-sky-50" },
-          { label: "관리 어르신", value: totals.residents, unit: "명", icon: UsersRound, tone: "text-indigo-600 bg-indigo-50" },
+          { label: scopeLabel === "시설" ? "소속 시설" : `${scopeLabel} 시설`, value: filteredFacilities.length, unit: "곳", icon: Building2, tone: "text-sky-600 bg-sky-50" },
+          { label: scopeLabel === "시설" ? "시설 대상자" : `${scopeLabel} 대상자`, value: totals.residents, unit: "명", icon: UsersRound, tone: "text-indigo-600 bg-indigo-50" },
           { label: "식사 기록률", value: totals.mealRecordRate, unit: "%", icon: CircleCheckBig, tone: "text-emerald-600 bg-emerald-50" },
           { label: "평균 섭취율", value: totals.averageIntakeRate, unit: "%", icon: UtensilsCrossed, tone: "text-amber-600 bg-amber-50" },
           { label: "미조치 알림", value: totals.unresolvedAlerts, unit: "건", icon: TriangleAlert, tone: "text-rose-600 bg-rose-50" },

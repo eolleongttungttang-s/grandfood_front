@@ -9,6 +9,7 @@ import {
 import { PageHeader } from "@/components/admin/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { getJson } from "@/lib/api";
+import { readAdminSession, type AdminSession } from "@/lib/admin-auth";
 import type { WardSummary } from "@/lib/admin-wards-api";
 
 type FacilityApiResponse = {
@@ -24,6 +25,45 @@ const facilityTypeLabels: Record<FacilityApiResponse["facility_type"], CareFacil
   NURSING_HOME: "요양원",
   WELFARE_CENTER: "사회복지기관",
 };
+
+function facilitiesVisibleToSession(
+  facilities: FacilityApiResponse[],
+  session: AdminSession | null,
+) {
+  if (!session) return [];
+  if (
+    session.accessLevel === "SUPER_ADMIN" ||
+    session.accessLevel === "MUNICIPALITY_ADMIN"
+  ) return facilities;
+
+  if (
+    session.accessLevel === "CARE_FACILITY_ADMIN" ||
+    session.accessLevel === "CARE_FACILITY_NUTRITIONIST"
+  ) {
+    return facilities.filter(
+      (facility) => facility.facility_code === session.careFacilityCode,
+    );
+  }
+
+  if (session.accessLevel === "MUNICIPALITY_STAFF" && session.facilityCode) {
+    return facilities.filter(
+      (facility) =>
+        facility.facility_code === session.facilityCode ||
+        facility.facility_code.startsWith(`${session.facilityCode}-`),
+    );
+  }
+
+  return [];
+}
+
+function dashboardScopeLabel(session: AdminSession | null) {
+  if (
+    session?.accessLevel === "CARE_FACILITY_ADMIN" ||
+    session?.accessLevel === "CARE_FACILITY_NUTRITIONIST"
+  ) return "시설";
+  if (session?.accessLevel === "MUNICIPALITY_STAFF") return "관할";
+  return "전체";
+}
 
 function mapDatabaseFacilities(
   facilities: FacilityApiResponse[],
@@ -42,7 +82,9 @@ function mapDatabaseFacilities(
     );
   }
 
-  return facilities.map((facility) => {
+  return facilities
+    .filter((facility) => facility.facility_type !== "MUNICIPALITY")
+    .map((facility) => {
     const parentMunicipality =
       facility.facility_type === "MUNICIPALITY"
         ? facility
@@ -68,6 +110,7 @@ function mapDatabaseFacilities(
 
 export function DatabaseStatisticsDashboard() {
   const [facilities, setFacilities] = useState<CareFacility[] | null>(null);
+  const [scopeLabel, setScopeLabel] = useState<"시설" | "관할" | "전체">("전체");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -75,11 +118,20 @@ export function DatabaseStatisticsDashboard() {
 
     async function load() {
       try {
+        const session = readAdminSession();
         const [facilityRows, wardRows] = await Promise.all([
           getJson<FacilityApiResponse[]>("/api/admin/facilities"),
           getJson<WardSummary[]>("/gov/facility/wards"),
         ]);
-        if (!cancelled) setFacilities(mapDatabaseFacilities(facilityRows, wardRows));
+        if (!cancelled) {
+          setScopeLabel(dashboardScopeLabel(session));
+          setFacilities(
+            mapDatabaseFacilities(
+              facilitiesVisibleToSession(facilityRows, session),
+              wardRows,
+            ),
+          );
+        }
       } catch (loadError) {
         if (!cancelled) {
           setError(
@@ -97,7 +149,7 @@ export function DatabaseStatisticsDashboard() {
     };
   }, []);
 
-  if (facilities) return <StatisticsDashboard facilities={facilities} />;
+  if (facilities) return <StatisticsDashboard facilities={facilities} scopeLabel={scopeLabel} />;
 
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
