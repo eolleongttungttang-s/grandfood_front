@@ -69,8 +69,6 @@ function seed(id: string) {
 }
 
 const ALLERGY_POOL = ["없음", "고등어(해산물)", "메밀", "갑각류", "우유", "견과류"];
-const CASE_WORKERS = ["김미정 사회복지사", "박정현 주무관"];
-
 export function getResidentDetail(resident: Resident): ResidentDetail {
   const s = seed(resident.id);
   const diagnoses = resident.condition
@@ -148,7 +146,7 @@ export function getResidentDetail(resident: Resident): ResidentDetail {
   }
 
   return {
-    caseWorker: CASE_WORKERS[s % CASE_WORKERS.length],
+    caseWorker: resident.caseWorker ?? "-",
     livingAlone: s % 2 === 0,
     diagnoses,
     allergies,

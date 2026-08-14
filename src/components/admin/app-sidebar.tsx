@@ -8,6 +8,7 @@ import {
   ChartNoAxesCombined,
   LayoutDashboard,
   LogOut,
+  MapPinned,
   UsersRound,
 } from "lucide-react";
 
@@ -54,6 +55,10 @@ export function AppSidebar() {
   const isSuperAdmin = session?.accessLevel === "SUPER_ADMIN";
   const canReviewSignups =
     isSuperAdmin || session?.accessLevel === "MUNICIPALITY_ADMIN";
+  const canUseMapMonitoring =
+    isSuperAdmin ||
+    session?.accessLevel === "MUNICIPALITY_ADMIN" ||
+    session?.accessLevel === "MUNICIPALITY_STAFF";
   const managementPath = isSuperAdmin
     ? "/admin/dashboard?section=registration"
     : "/admin/dashboard?section=approvals";
@@ -103,6 +108,53 @@ export function AppSidebar() {
                       <Icon />
                       <span>{item.label}</span>
                     </SidebarMenuButton>
+                    {item.href === "/admin/statistics" &&
+                      pathname.startsWith("/admin/statistics") &&
+                      !pathname.startsWith("/admin/statistics-empty") && (
+                        <SidebarMenuSub>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              isActive={pathname === "/admin/statistics"}
+                              render={<Link href="/admin/statistics" />}
+                            >
+                              <ChartNoAxesCombined />
+                              <span>현황 대시보드</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                          {canUseMapMonitoring && <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              isActive={pathname === "/admin/statistics/map"}
+                              render={<Link href="/admin/statistics/map" />}
+                            >
+                              <MapPinned />
+                              <span>지도 모니터링</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>}
+                        </SidebarMenuSub>
+                      )}
+                    {item.href === "/admin/statistics-empty" &&
+                      pathname.startsWith("/admin/statistics-empty") && (
+                        <SidebarMenuSub>
+                          {canUseMapMonitoring && <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              isActive={pathname === "/admin/statistics-empty"}
+                              render={<Link href="/admin/statistics-empty" />}
+                            >
+                              <ChartNoAxesCombined />
+                              <span>현황 대시보드</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>}
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              isActive={pathname === "/admin/statistics-empty/map"}
+                              render={<Link href="/admin/statistics-empty/map" />}
+                            >
+                              <MapPinned />
+                              <span>지도 모니터링</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        </SidebarMenuSub>
+                      )}
                   </SidebarMenuItem>
                 );
               })}

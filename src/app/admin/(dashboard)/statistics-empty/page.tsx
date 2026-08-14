@@ -1,5 +1,5 @@
-import { StatisticsDashboard } from "@/components/admin/statistics-dashboard";
+import { DatabaseStatisticsDashboard } from "@/components/admin/database-statistics-dashboard";
 
 export default function EmptyStatisticsPage() {
-  return <StatisticsDashboard facilities={[]} />;
+  return <DatabaseStatisticsDashboard />;
 }

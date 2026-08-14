@@ -52,12 +52,13 @@ export function NoticesPanel() {
     const timeoutId = window.setTimeout(() => {
       const session = readAdminSession();
       const superAdmin = session?.accessLevel === "SUPER_ADMIN";
-      const isCareFacilityAdmin =
-        session?.accessLevel === "CARE_FACILITY_ADMIN";
-      const sessionFacilityId = isCareFacilityAdmin
+      const isCareFacilityMember =
+        session?.accessLevel === "CARE_FACILITY_ADMIN" ||
+        session?.accessLevel === "CARE_FACILITY_NUTRITIONIST";
+      const sessionFacilityId = isCareFacilityMember
         ? session?.careFacilityId || null
         : session?.facilityId || null;
-      const sessionFacilityName = isCareFacilityAdmin
+      const sessionFacilityName = isCareFacilityMember
         ? session?.careFacilityName || null
         : session?.facilityName || null;
       setIsSuperAdmin(superAdmin);

@@ -9,7 +9,10 @@ import {
   getResidentDetail,
   type ResidentDetail,
 } from "@/lib/admin-resident-detail";
-import { type Resident } from "@/lib/admin-residents";
+import {
+  type Resident,
+  RESIDENT_CASE_WORKERS_STORAGE_KEY,
+} from "@/lib/admin-residents";
 import { fetchFacilityWards } from "@/lib/admin-wards-api";
 
 export function ResidentDetailPageClient({
@@ -33,9 +36,23 @@ export function ResidentDetailPageClient({
     async function resolve() {
       try {
         const wards = await fetchFacilityWards();
-        const apiResident = wards.find((item) => item.id === residentId);
+        const foundResident = wards.find((item) => item.id === residentId);
         if (cancelled) return;
-        if (apiResident) {
+        if (foundResident) {
+          let registeredCaseWorker: string | undefined;
+          try {
+            const saved = window.localStorage.getItem(RESIDENT_CASE_WORKERS_STORAGE_KEY);
+            const caseWorkers = saved
+              ? (JSON.parse(saved) as Record<string, string>)
+              : {};
+            registeredCaseWorker = caseWorkers[residentId];
+          } catch {
+            window.localStorage.removeItem(RESIDENT_CASE_WORKERS_STORAGE_KEY);
+          }
+          const apiResident = {
+            ...foundResident,
+            caseWorker: foundResident.caseWorker ?? registeredCaseWorker ?? "-",
+          };
           setResident(apiResident);
           setDetail(getResidentDetail(apiResident));
           setLoading(false);

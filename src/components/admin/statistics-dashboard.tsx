@@ -27,13 +27,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-type CareFacility = {
+export type CareFacility = {
   id: string;
   region: string;
   municipality: string;
   municipalityCode: string;
   name: string;
-  type: "요양원" | "사회복지기관";
+  type: "지자체" | "요양원" | "사회복지기관";
   residents: number;
   mealRecordRate: number;
   averageIntakeRate: number;
@@ -199,6 +199,7 @@ export function StatisticsDashboard({
               }}
             >
               <option>전체</option>
+              <option>지자체</option>
               <option>요양원</option>
               <option>사회복지기관</option>
             </select>
