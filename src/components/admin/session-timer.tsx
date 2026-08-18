@@ -6,7 +6,6 @@ import { toast } from "sonner";
 
 // Matches the "세션은 30분 뒤 자동 종료돼요" notice shown on the login screen.
 const SESSION_DURATION_SECONDS = 30 * 60;
-const ACTIVITY_EVENTS = ["mousemove", "keydown", "click", "scroll"] as const;
 
 function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
@@ -24,16 +23,6 @@ export function SessionTimer() {
       setSecondsLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    function resetTimer() {
-      setSecondsLeft(SESSION_DURATION_SECONDS);
-    }
-    ACTIVITY_EVENTS.forEach((event) => window.addEventListener(event, resetTimer));
-    return () => {
-      ACTIVITY_EVENTS.forEach((event) => window.removeEventListener(event, resetTimer));
-    };
   }, []);
 
   useEffect(() => {
