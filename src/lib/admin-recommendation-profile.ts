@@ -4,18 +4,18 @@ const STORAGE_KEY = "grandfood_admin_recommendation_profiles";
 
 export type AdminRecommendationProfile = {
   checkupDate: string;
-  heightCm: number;
-  weightKg: number;
-  activityLevel: ActivityLevel;
+  heightCm: number | null;
+  weightKg: number | null;
+  activityLevel: ActivityLevel | null;
   conditionFlags: ConditionFlag[];
   conditionsNote: string;
   allergies: string[];
   dislikedIngredients: string[];
   restrictions: string[];
   medications: { name: string; schedule: string }[];
-  mealsPerDay: 1 | 2 | 3 | 4;
-  chewingDifficulty: boolean;
-  mobilityLevel: "independent" | "needs_assistance" | "bedridden";
+  mealsPerDay: 1 | 2 | 3 | 4 | null;
+  chewingDifficulty: boolean | null;
+  mobilityLevel: "independent" | "needs_assistance" | "bedridden" | null;
 };
 
 export function saveAdminRecommendationProfile(
@@ -37,8 +37,23 @@ export function updateAdminRecommendationProfile(
   changes: Partial<AdminRecommendationProfile>,
 ) {
   const current = readAdminRecommendationProfile(residentId);
-  if (!current) return;
-  saveAdminRecommendationProfile(residentId, { ...current, ...changes });
+  saveAdminRecommendationProfile(residentId, {
+    checkupDate: "-",
+    heightCm: null,
+    weightKg: null,
+    activityLevel: null,
+    conditionFlags: [],
+    conditionsNote: "",
+    allergies: [],
+    dislikedIngredients: [],
+    restrictions: [],
+    medications: [],
+    mealsPerDay: null,
+    chewingDifficulty: null,
+    mobilityLevel: null,
+    ...current,
+    ...changes,
+  });
 }
 
 function readAllProfiles(): Record<string, AdminRecommendationProfile> {

@@ -7,7 +7,7 @@ export type Resident = {
   name: string;
   caseWorker?: string;
   age: number;
-  gender: "여" | "남";
+  gender: "여" | "남" | "미상";
   facilityCode?: string;
   address?: string;
   /** 기존 테스트 데이터 호환용 동 단위 주소 */

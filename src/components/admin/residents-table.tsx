@@ -403,7 +403,7 @@ function RegisterResidentDialog({
   onClose: () => void;
   onRegister: (resident: Resident) => void;
 }) {
-  const [gender, setGender] = useState<Resident["gender"]>("여");
+  const [gender, setGender] = useState<"여" | "남">("여");
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>("sedentary");
   const [conditionFlags, setConditionFlags] = useState<ConditionFlag[]>([]);
   const [mealsPerDay, setMealsPerDay] = useState<1 | 2 | 3 | 4>(3);
@@ -566,7 +566,7 @@ function RegisterResidentDialog({
               </Label>
               <Select
                 value={gender}
-                onValueChange={(value) => setGender((value as Resident["gender"]) ?? "여")}
+                onValueChange={(value) => setGender((value as "여" | "남") ?? "여")}
               >
                 <SelectTrigger id="resident-gender" className="w-full">
                   <SelectValue />

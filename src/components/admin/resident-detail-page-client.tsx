@@ -55,9 +55,11 @@ export function ResidentDetailPageClient({
             otherNote: savedProfile.conditionsNote || emptyDetail.otherNote,
             dislikedIngredients: savedProfile.dislikedIngredients,
             restrictions: savedProfile.restrictions,
-            mealsPerDay: savedProfile.mealsPerDay,
+            mealsPerDay: savedProfile.mealsPerDay ?? "-",
             chewingDifficulty: savedProfile.chewingDifficulty,
-            mobilityLevel: savedProfile.mobilityLevel === "independent"
+            mobilityLevel: savedProfile.mobilityLevel === null
+              ? "-"
+              : savedProfile.mobilityLevel === "independent"
               ? "독립 보행"
               : savedProfile.mobilityLevel === "needs_assistance"
                 ? "보행 도움 필요"
@@ -65,9 +67,11 @@ export function ResidentDetailPageClient({
             checkup: {
               ...emptyDetail.checkup,
               date: savedProfile.checkupDate,
-              heightCm: savedProfile.heightCm,
-              weightKg: savedProfile.weightKg,
-              activityLevel: ACTIVITY_LEVEL_OPTIONS.find(
+              heightCm: savedProfile.heightCm ?? "-",
+              weightKg: savedProfile.weightKg ?? "-",
+              activityLevel: savedProfile.activityLevel === null
+                ? "-"
+                : ACTIVITY_LEVEL_OPTIONS.find(
                 (option) => option.value === savedProfile.activityLevel,
               )?.label ?? savedProfile.activityLevel,
             },

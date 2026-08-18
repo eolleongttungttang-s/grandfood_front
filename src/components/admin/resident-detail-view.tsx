@@ -58,14 +58,26 @@ export function ResidentDetailView({
         const overrides = saved
           ? (JSON.parse(saved) as Record<string, ResidentDetail>)
           : {};
-        if (overrides[resident.id]) setDetail(overrides[resident.id]);
+        const stored = overrides[resident.id];
+        if (stored) {
+          setDetail({
+            ...initialDetail,
+            ...stored,
+            dislikedIngredients: stored.dislikedIngredients ?? [],
+            restrictions: stored.restrictions ?? [],
+            mealsPerDay: stored.mealsPerDay ?? "-",
+            chewingDifficulty: stored.chewingDifficulty ?? null,
+            mobilityLevel: stored.mobilityLevel ?? "-",
+            checkup: { ...initialDetail.checkup, ...(stored.checkup ?? {}) },
+          });
+        }
       } catch {
         window.localStorage.removeItem(RESIDENT_DETAIL_OVERRIDES_KEY);
       }
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [resident.id]);
+  }, [initialDetail, resident.id]);
 
   function saveMedicalInfo(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,13 +135,17 @@ export function ResidentDetailView({
     const heightCm = Number(form.get("heightCm"));
     const weightKg = Number(form.get("weightKg"));
     const checkupDate = String(form.get("checkupDate") ?? "");
-    const activityLevel = String(form.get("activityLevel") ?? "sedentary") as ActivityLevel;
-    const mealsPerDay = Number(form.get("mealsPerDay")) as 1 | 2 | 3 | 4;
-    const chewingDifficulty = form.get("chewingDifficulty") === "yes";
-    const mobilityLevel = String(form.get("mobilityLevel") ?? "independent") as
+    const activityValue = String(form.get("activityLevel") ?? "");
+    const activityLevel = activityValue ? activityValue as ActivityLevel : null;
+    const mealsValue = String(form.get("mealsPerDay") ?? "");
+    const mealsPerDay = mealsValue ? Number(mealsValue) as 1 | 2 | 3 | 4 : null;
+    const chewingValue = String(form.get("chewingDifficulty") ?? "");
+    const chewingDifficulty = chewingValue ? chewingValue === "yes" : null;
+    const mobilityValue = String(form.get("mobilityLevel") ?? "");
+    const mobilityLevel = mobilityValue ? mobilityValue as
       | "independent"
       | "needs_assistance"
-      | "bedridden";
+      | "bedridden" : null;
     if (!heightCm || !weightKg) {
       toast.error("키와 체중을 모두 입력해 주세요.");
       return;
@@ -137,9 +153,11 @@ export function ResidentDetailView({
 
     const nextDetail = {
       ...detail,
-      mealsPerDay,
+      mealsPerDay: mealsPerDay ?? "-",
       chewingDifficulty,
-      mobilityLevel: mobilityLevel === "independent"
+      mobilityLevel: mobilityLevel === null
+        ? "-"
+        : mobilityLevel === "independent"
         ? "독립 보행"
         : mobilityLevel === "needs_assistance"
           ? "보행 도움 필요"
@@ -149,7 +167,9 @@ export function ResidentDetailView({
         date: checkupDate || "-",
         heightCm,
         weightKg,
-        activityLevel: ACTIVITY_LEVEL_OPTIONS.find(
+        activityLevel: activityLevel === null
+          ? "-"
+          : ACTIVITY_LEVEL_OPTIONS.find(
           (option) => option.value === activityLevel,
         )?.label ?? activityLevel,
       },
@@ -164,7 +184,7 @@ export function ResidentDetailView({
         JSON.stringify({ ...overrides, [resident.id]: nextDetail }),
       );
       updateAdminRecommendationProfile(resident.id, {
-        checkupDate: checkupDate || new Date().toISOString().slice(0, 10),
+        checkupDate: checkupDate || "-",
         heightCm,
         weightKg,
         activityLevel,
@@ -509,9 +529,10 @@ export function ResidentDetailView({
                   name="activityLevel"
                   defaultValue={ACTIVITY_LEVEL_OPTIONS.find(
                     (option) => option.label === detail.checkup.activityLevel,
-                  )?.value ?? "sedentary"}
+                  )?.value ?? ""}
                   className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                 >
+                  <option value="">미상</option>
                   {ACTIVITY_LEVEL_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
@@ -523,9 +544,10 @@ export function ResidentDetailView({
                   <select
                     id="edit-meals-per-day"
                     name="mealsPerDay"
-                    defaultValue={detail.mealsPerDay === "-" ? "3" : String(detail.mealsPerDay)}
+                    defaultValue={detail.mealsPerDay === "-" ? "" : String(detail.mealsPerDay)}
                     className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                   >
+                    <option value="">미상</option>
                     {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}회</option>)}
                   </select>
                 </div>
@@ -534,9 +556,10 @@ export function ResidentDetailView({
                   <select
                     id="edit-chewing-difficulty"
                     name="chewingDifficulty"
-                    defaultValue={detail.chewingDifficulty ? "yes" : "no"}
+                    defaultValue={detail.chewingDifficulty === null ? "" : detail.chewingDifficulty ? "yes" : "no"}
                     className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                   >
+                    <option value="">미상</option>
                     <option value="no">없음</option>
                     <option value="yes">있음</option>
                   </select>
@@ -547,13 +570,16 @@ export function ResidentDetailView({
                 <select
                   id="edit-mobility-level"
                   name="mobilityLevel"
-                  defaultValue={detail.mobilityLevel === "보행 도움 필요"
+                  defaultValue={detail.mobilityLevel === "-"
+                    ? ""
+                    : detail.mobilityLevel === "보행 도움 필요"
                     ? "needs_assistance"
                     : detail.mobilityLevel === "와상"
                       ? "bedridden"
                       : "independent"}
                   className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                 >
+                  <option value="">미상</option>
                   <option value="independent">독립 보행</option>
                   <option value="needs_assistance">보행 도움 필요</option>
                   <option value="bedridden">와상</option>

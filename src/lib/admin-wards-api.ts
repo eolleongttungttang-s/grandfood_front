@@ -26,7 +26,7 @@ export function toResident(ward: WardSummary): Resident {
     id: ward.id,
     name: ward.name,
     age: ward.age,
-    gender: ward.gender === "male" ? "남" : "여",
+    gender: ward.gender === "male" ? "남" : ward.gender === "female" ? "여" : "미상",
     facilityCode: ward.facility_code ?? undefined,
     address: ward.address,
     dong: ward.address,
