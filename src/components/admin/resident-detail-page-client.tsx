@@ -6,14 +6,13 @@ import Link from "next/link";
 import { ResidentDetailView } from "@/components/admin/resident-detail-view";
 import { buttonVariants } from "@/components/ui/button";
 import {
-  getResidentDetail,
+  getEmptyResidentDetail,
   type ResidentDetail,
 } from "@/lib/admin-resident-detail";
-import {
-  type Resident,
-  RESIDENT_CASE_WORKERS_STORAGE_KEY,
-} from "@/lib/admin-residents";
+import { type Resident } from "@/lib/admin-residents";
 import { fetchFacilityWards } from "@/lib/admin-wards-api";
+import { readAdminRecommendationProfile } from "@/lib/admin-recommendation-profile";
+import { ACTIVITY_LEVEL_OPTIONS, getConditionLabel } from "@/lib/admin-ward-registration";
 
 export function ResidentDetailPageClient({
   residentId,
@@ -39,22 +38,40 @@ export function ResidentDetailPageClient({
         const foundResident = wards.find((item) => item.id === residentId);
         if (cancelled) return;
         if (foundResident) {
-          let registeredCaseWorker: string | undefined;
-          try {
-            const saved = window.localStorage.getItem(RESIDENT_CASE_WORKERS_STORAGE_KEY);
-            const caseWorkers = saved
-              ? (JSON.parse(saved) as Record<string, string>)
-              : {};
-            registeredCaseWorker = caseWorkers[residentId];
-          } catch {
-            window.localStorage.removeItem(RESIDENT_CASE_WORKERS_STORAGE_KEY);
-          }
           const apiResident = {
             ...foundResident,
-            caseWorker: foundResident.caseWorker ?? registeredCaseWorker ?? "-",
+            caseWorker: foundResident.caseWorker ?? "-",
           };
           setResident(apiResident);
-          setDetail(getResidentDetail(apiResident));
+          // 상세 API가 준비되기 전까지 등록 화면에서 받은 추천 프로필을 UUID로 연결한다.
+          // 저장값이 없으면 임의 수치를 만들지 않고 빈 상세 화면을 사용한다.
+          const savedProfile = readAdminRecommendationProfile(apiResident.id);
+          const emptyDetail = getEmptyResidentDetail(apiResident);
+          setDetail(savedProfile ? {
+            ...emptyDetail,
+            diagnoses: savedProfile.conditionFlags.map(getConditionLabel),
+            allergies: savedProfile.allergies,
+            medications: savedProfile.medications,
+            otherNote: savedProfile.conditionsNote || emptyDetail.otherNote,
+            dislikedIngredients: savedProfile.dislikedIngredients,
+            restrictions: savedProfile.restrictions,
+            mealsPerDay: savedProfile.mealsPerDay,
+            chewingDifficulty: savedProfile.chewingDifficulty,
+            mobilityLevel: savedProfile.mobilityLevel === "independent"
+              ? "독립 보행"
+              : savedProfile.mobilityLevel === "needs_assistance"
+                ? "보행 도움 필요"
+                : "와상",
+            checkup: {
+              ...emptyDetail.checkup,
+              date: savedProfile.checkupDate,
+              heightCm: savedProfile.heightCm,
+              weightKg: savedProfile.weightKg,
+              activityLevel: ACTIVITY_LEVEL_OPTIONS.find(
+                (option) => option.value === savedProfile.activityLevel,
+              )?.label ?? savedProfile.activityLevel,
+            },
+          } : emptyDetail);
           setLoading(false);
           return;
         }

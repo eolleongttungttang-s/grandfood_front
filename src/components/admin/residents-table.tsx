@@ -7,7 +7,6 @@ import { toast } from "sonner";
 
 import {
   Resident,
-  RESIDENT_CASE_WORKERS_STORAGE_KEY,
   RiskLevel,
 } from "@/lib/admin-residents";
 import {
@@ -20,6 +19,7 @@ import {
 } from "@/lib/admin-ward-registration";
 import { readAdminSession } from "@/lib/admin-auth";
 import { createFacilityWard } from "@/lib/admin-wards-api";
+import { saveAdminRecommendationProfile } from "@/lib/admin-recommendation-profile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,12 +74,23 @@ export function ResidentsTable({
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
   const [canRegister, setCanRegister] = useState(false);
+  const [requiresFacilitySelection, setRequiresFacilitySelection] = useState(false);
   const [facilityCode, setFacilityCode] = useState("");
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       const session = readAdminSession();
-      setCanRegister(session?.accessLevel === "CARE_FACILITY_ADMIN");
+      setCanRegister(
+        session?.accessLevel === "CARE_FACILITY_ADMIN" ||
+          session?.accessLevel === "SUPER_ADMIN" ||
+          session?.accessLevel === "MUNICIPALITY_ADMIN" ||
+          session?.accessLevel === "MUNICIPALITY_STAFF",
+      );
+      setRequiresFacilitySelection(
+        session?.accessLevel === "SUPER_ADMIN" ||
+          session?.accessLevel === "MUNICIPALITY_ADMIN" ||
+          session?.accessLevel === "MUNICIPALITY_STAFF",
+      );
       setFacilityCode(session?.careFacilityCode ?? session?.facilityCode ?? "");
     }, 0);
 
@@ -111,20 +122,6 @@ export function ResidentsTable({
   }, [residents, riskFilter, search, sortKey, sortAsc]);
 
   function registerResident(resident: Resident) {
-    if (resident.caseWorker) {
-      try {
-        const saved = window.localStorage.getItem(RESIDENT_CASE_WORKERS_STORAGE_KEY);
-        const caseWorkers = saved
-          ? (JSON.parse(saved) as Record<string, string>)
-          : {};
-        window.localStorage.setItem(
-          RESIDENT_CASE_WORKERS_STORAGE_KEY,
-          JSON.stringify({ ...caseWorkers, [resident.id]: resident.caseWorker }),
-        );
-      } catch {
-        window.localStorage.removeItem(RESIDENT_CASE_WORKERS_STORAGE_KEY);
-      }
-    }
     setResidents((current) => [...current, resident]);
     setRegisterOpen(false);
     setPage(1);
@@ -207,12 +204,16 @@ export function ResidentsTable({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canRegister && (
-              <Button variant="outline" size="sm" onClick={() => setRegisterOpen(true)}>
-                <Plus />
-                대상자 등록
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRegisterOpen(true)}
+              disabled={!canRegister}
+              title={canRegister ? "대상자 등록" : "현재 권한으로는 대상자를 등록할 수 없습니다."}
+            >
+              <Plus />
+              대상자 등록
+            </Button>
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -373,6 +374,10 @@ export function ResidentsTable({
       <RegisterResidentDialog
         open={registerOpen}
         facilityCode={facilityCode}
+        facilityCodes={Array.from(
+          new Set(residents.map((resident) => resident.facilityCode).filter(Boolean)),
+        ) as string[]}
+        previewOnly={requiresFacilitySelection}
         nextResidentId={getNextResidentId(facilityCode)}
         onClose={() => setRegisterOpen(false)}
         onRegister={registerResident}
@@ -384,12 +389,16 @@ export function ResidentsTable({
 function RegisterResidentDialog({
   open,
   facilityCode,
+  facilityCodes,
+  previewOnly,
   nextResidentId,
   onClose,
   onRegister,
 }: {
   open: boolean;
   facilityCode: string;
+  facilityCodes: string[];
+  previewOnly: boolean;
   nextResidentId: string;
   onClose: () => void;
   onRegister: (resident: Resident) => void;
@@ -397,6 +406,10 @@ function RegisterResidentDialog({
   const [gender, setGender] = useState<Resident["gender"]>("여");
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>("sedentary");
   const [conditionFlags, setConditionFlags] = useState<ConditionFlag[]>([]);
+  const [mealsPerDay, setMealsPerDay] = useState<1 | 2 | 3 | 4>(3);
+  const [chewingDifficulty, setChewingDifficulty] = useState(false);
+  const [mobilityLevel, setMobilityLevel] = useState<"independent" | "needs_assistance" | "bedridden">("independent");
+  const [selectedFacilityCode, setSelectedFacilityCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -414,7 +427,10 @@ function RegisterResidentDialog({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const session = readAdminSession();
+    if (previewOnly) {
+      toast.info("관리자 대상자 등록은 백엔드 시설 지정 API 연결 후 사용할 수 있습니다.");
+      return;
+    }
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") ?? "").trim();
     const birthDate = String(form.get("birthDate") ?? "");
@@ -465,11 +481,24 @@ function RegisterResidentDialog({
         medications_note: medicationsNote || null,
         note: note || null,
       });
+      saveAdminRecommendationProfile(resident.id, {
+        checkupDate: new Date().toISOString().slice(0, 10),
+        heightCm,
+        weightKg,
+        activityLevel,
+        conditionFlags,
+        conditionsNote,
+        allergies,
+        dislikedIngredients,
+        restrictions,
+        medications,
+        mealsPerDay,
+        chewingDifficulty,
+        mobilityLevel,
+      });
       onRegister({
         ...resident,
         displayId: nextResidentId,
-        caseWorker:
-          [session?.name ?? session?.account, session?.role].filter(Boolean).join(" ") || "-",
         facilityCode: resident.facilityCode ?? facilityCode,
         allergies,
         medications,
@@ -495,7 +524,9 @@ function RegisterResidentDialog({
               대상자 등록
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              급식 지원 대상자의 기본 정보를 입력해 주세요.
+              {previewOnly
+                ? "관리 범위 내 산하시설을 선택하는 등록 화면 틀입니다. 현재는 저장되지 않습니다."
+                : "급식 지원 대상자의 기본 정보를 입력해 주세요."}
             </p>
           </div>
           <Button type="button" variant="ghost" size="icon-sm" onClick={onClose}>
@@ -565,10 +596,30 @@ function RegisterResidentDialog({
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label>소속 기관</Label>
-              <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm">
-                {facilityCode || "로그인한 담당자의 소속 시설"}
-              </div>
-              <p className="text-xs text-muted-foreground">소속 기관은 로그인한 담당자 정보로 자동 지정됩니다.</p>
+              {previewOnly ? (
+                <Select
+                  value={selectedFacilityCode}
+                  onValueChange={(value) => setSelectedFacilityCode(value ?? "")}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="대상자를 등록할 산하시설을 선택해 주세요" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {facilityCodes.map((code) => (
+                      <SelectItem key={code} value={code}>{code}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm">
+                  {facilityCode || "로그인한 담당자의 소속 시설"}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {previewOnly
+                  ? "백엔드에서 care_facility_id 지정 등록을 지원하면 실제 시설 목록 API와 연결합니다."
+                  : "소속 기관은 로그인한 담당자 정보로 자동 지정됩니다."}
+              </p>
             </div>
             <div className="space-y-3 sm:col-span-2">
               <Label>주요 질환 (중복 선택 가능)</Label>
@@ -605,6 +656,36 @@ function RegisterResidentDialog({
                 <SelectTrigger id="resident-activity" className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ACTIVITY_LEVEL_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resident-meals-per-day">하루 식사 횟수</Label>
+              <Select value={String(mealsPerDay)} onValueChange={(value) => setMealsPerDay(Number(value ?? 3) as 1 | 2 | 3 | 4)}>
+                <SelectTrigger id="resident-meals-per-day" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 4].map((count) => <SelectItem key={count} value={String(count)}>{count}회</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resident-chewing">씹기 어려움</Label>
+              <Select value={chewingDifficulty ? "yes" : "no"} onValueChange={(value) => setChewingDifficulty(value === "yes")}>
+                <SelectTrigger id="resident-chewing" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="no">없음</SelectItem>
+                  <SelectItem value="yes">있음</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resident-mobility">거동 상태</Label>
+              <Select value={mobilityLevel} onValueChange={(value) => setMobilityLevel((value ?? "independent") as typeof mobilityLevel)}>
+                <SelectTrigger id="resident-mobility" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="independent">독립 보행</SelectItem>
+                  <SelectItem value="needs_assistance">보행 도움 필요</SelectItem>
+                  <SelectItem value="bedridden">와상</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -664,8 +745,8 @@ function RegisterResidentDialog({
             <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
               취소
             </Button>
-            <Button type="submit" disabled={submitting}>
-              <Plus /> {submitting ? "등록 중..." : "대상자 등록"}
+            <Button type="submit" disabled={submitting || (previewOnly && !selectedFacilityCode)}>
+              <Plus /> {previewOnly ? "API 연결 후 등록" : submitting ? "등록 중..." : "대상자 등록"}
             </Button>
           </div>
         </form>

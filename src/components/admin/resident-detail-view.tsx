@@ -13,6 +13,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MealImageUpload } from "@/components/admin/meal-image-upload";
+import { ResidentMonthlyRecommendation } from "@/components/admin/resident-monthly-recommendation";
+import { updateAdminRecommendationProfile } from "@/lib/admin-recommendation-profile";
+import { ACTIVITY_LEVEL_OPTIONS, type ActivityLevel } from "@/lib/admin-ward-registration";
 
 const RESIDENT_DETAIL_OVERRIDES_KEY = "grandfood_resident_detail_overrides";
 
@@ -119,6 +122,14 @@ export function ResidentDetailView({
     const form = new FormData(event.currentTarget);
     const heightCm = Number(form.get("heightCm"));
     const weightKg = Number(form.get("weightKg"));
+    const checkupDate = String(form.get("checkupDate") ?? "");
+    const activityLevel = String(form.get("activityLevel") ?? "sedentary") as ActivityLevel;
+    const mealsPerDay = Number(form.get("mealsPerDay")) as 1 | 2 | 3 | 4;
+    const chewingDifficulty = form.get("chewingDifficulty") === "yes";
+    const mobilityLevel = String(form.get("mobilityLevel") ?? "independent") as
+      | "independent"
+      | "needs_assistance"
+      | "bedridden";
     if (!heightCm || !weightKg) {
       toast.error("키와 체중을 모두 입력해 주세요.");
       return;
@@ -126,7 +137,22 @@ export function ResidentDetailView({
 
     const nextDetail = {
       ...detail,
-      checkup: { ...detail.checkup, heightCm, weightKg },
+      mealsPerDay,
+      chewingDifficulty,
+      mobilityLevel: mobilityLevel === "independent"
+        ? "독립 보행"
+        : mobilityLevel === "needs_assistance"
+          ? "보행 도움 필요"
+          : "와상",
+      checkup: {
+        ...detail.checkup,
+        date: checkupDate || "-",
+        heightCm,
+        weightKg,
+        activityLevel: ACTIVITY_LEVEL_OPTIONS.find(
+          (option) => option.value === activityLevel,
+        )?.label ?? activityLevel,
+      },
     };
     try {
       const saved = window.localStorage.getItem(RESIDENT_DETAIL_OVERRIDES_KEY);
@@ -137,6 +163,15 @@ export function ResidentDetailView({
         RESIDENT_DETAIL_OVERRIDES_KEY,
         JSON.stringify({ ...overrides, [resident.id]: nextDetail }),
       );
+      updateAdminRecommendationProfile(resident.id, {
+        checkupDate: checkupDate || new Date().toISOString().slice(0, 10),
+        heightCm,
+        weightKg,
+        activityLevel,
+        mealsPerDay,
+        chewingDifficulty,
+        mobilityLevel,
+      });
     } catch {
       toast.error("수정 내용을 저장하지 못했습니다.");
       return;
@@ -144,7 +179,7 @@ export function ResidentDetailView({
 
     setDetail(nextDetail);
     setHealthEditOpen(false);
-    toast.success("키와 체중을 수정했습니다.");
+    toast.success("추천 건강 프로필을 수정했습니다.");
   }
 
   const completeCount = detail.mealHistory.filter((m) => m === "완식").length;
@@ -219,19 +254,29 @@ export function ResidentDetailView({
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-bold text-foreground">건강검진 데이터</h2>
+            <h2 className="text-sm font-bold text-foreground">추천 건강 프로필</h2>
             <Button type="button" variant="outline" size="sm" onClick={() => setHealthEditOpen(true)}>
               <Pencil /> 수정
             </Button>
           </div>
-          <span className="text-xs text-muted-foreground">{detail.checkup.date} 국가검진 연계</span>
-          <DetailRow label="수축기 혈압">{detail.checkup.systolicBP} mmHg</DetailRow>
-          <DetailRow label="공복혈당">{detail.checkup.fastingGlucose} mg/dL</DetailRow>
-          <DetailRow label="당화혈색소">{detail.checkup.hba1c} %</DetailRow>
-          <DetailRow label="eGFR (신기능)">{detail.checkup.egfr}</DetailRow>
+          <span className="text-xs text-muted-foreground">
+            반찬 추천에 사용하는 기본 건강정보입니다.
+          </span>
+          <DetailRow label="건강정보 등록일">{detail.checkup.date}</DetailRow>
+          <DetailRow label="성별">{resident.gender}</DetailRow>
           <DetailRow label="키">{detail.checkup.heightCm ?? "-"} cm</DetailRow>
           <DetailRow label="체중">{detail.checkup.weightKg} kg</DetailRow>
-          <DetailRow label="알부민">{detail.checkup.albumin} g/dL</DetailRow>
+          <DetailRow label="평소 활동량">{detail.checkup.activityLevel}</DetailRow>
+          <DetailRow label="하루 식사 횟수">
+            {detail.mealsPerDay === "-" ? "-" : `${detail.mealsPerDay}회`}
+          </DetailRow>
+          <DetailRow label="씹기 어려움">
+            {detail.chewingDifficulty === null ? "-" : detail.chewingDifficulty ? "있음" : "없음"}
+          </DetailRow>
+          <DetailRow label="거동 상태">{detail.mobilityLevel}</DetailRow>
+          <p className="rounded-lg bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+            혈압·혈당 원시 수치는 현재 추천 프로필 API에 포함되지 않아 표시하지 않습니다.
+          </p>
         </div>
 
         <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -284,52 +329,27 @@ export function ResidentDetailView({
               )}
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-muted-foreground">기피 식재료</span>
+              <span className="text-sm text-foreground">
+                {detail.dislikedIngredients.length > 0 ? detail.dislikedIngredients.join(", ") : "없음"}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-muted-foreground">식이 제한</span>
+              <span className="text-sm text-foreground">
+                {detail.restrictions.length > 0 ? detail.restrictions.join(", ") : "없음"}
+              </span>
+            </div>
+          </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold text-muted-foreground">기타</span>
             <p className="text-sm text-foreground">{detail.otherNote ?? "-"}</p>
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-bold text-foreground">현재 식단과 근거</h2>
-            <span className="text-xs text-muted-foreground">주 5회 · 점심</span>
-          </div>
-          <div className="flex flex-col gap-2 rounded-lg bg-sidebar p-4 text-sidebar-foreground">
-            <span className="text-xs font-bold tracking-wide text-sidebar-primary">
-              배정 식단
-            </span>
-            <span className="text-lg font-extrabold">{detail.diet.name}</span>
-            <div className="flex gap-4 pt-1 text-xs">
-              <div className="flex flex-col">
-                <span className="text-sidebar-foreground/60">나트륨</span>
-                <span className="font-semibold">{detail.diet.sodiumMg}mg</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-sidebar-foreground/60">단백질</span>
-                <span className="font-semibold">{detail.diet.proteinG}g</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-sidebar-foreground/60">열량</span>
-                <span className="font-semibold">{detail.diet.kcal}kcal</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-semibold text-muted-foreground">왜 이 식단인가</span>
-            {detail.diet.reasons.map((reason, i) => (
-              <div
-                key={i}
-                className="flex gap-2 rounded-lg border border-border bg-muted/50 p-2.5 text-sm text-foreground"
-              >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-bold text-background">
-                  {i + 1}
-                </span>
-                {reason}
-              </div>
-            ))}
-          </div>
-        </div>
+        <ResidentMonthlyRecommendation resident={resident} detail={detail} />
       </div>
 
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -432,12 +452,12 @@ export function ResidentDetailView({
             role="dialog"
             aria-modal="true"
             aria-labelledby="health-info-edit-title"
-            className="w-full max-w-md rounded-2xl bg-card shadow-2xl"
+            className="max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-card shadow-2xl"
           >
             <header className="flex items-start justify-between border-b border-border px-6 py-5">
               <div>
-                <h2 id="health-info-edit-title" className="text-xl font-bold">키·체중 수정</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{resident.name}님의 측정값을 입력합니다.</p>
+                <h2 id="health-info-edit-title" className="text-xl font-bold">추천 건강 프로필 수정</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{resident.name}님의 반찬 추천 기준 정보를 수정합니다.</p>
               </div>
               <Button type="button" variant="ghost" size="icon-sm" onClick={() => setHealthEditOpen(false)}>
                 <X />
@@ -445,6 +465,15 @@ export function ResidentDetailView({
               </Button>
             </header>
             <form onSubmit={saveHealthInfo} className="space-y-5 px-6 py-6">
+              <div className="space-y-2">
+                <Label htmlFor="edit-checkup-date">건강정보 등록일</Label>
+                <Input
+                  id="edit-checkup-date"
+                  name="checkupDate"
+                  type="date"
+                  defaultValue={detail.checkup.date === "-" ? "" : detail.checkup.date.replaceAll(".", "-")}
+                />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-height">키 (cm)</Label>
@@ -472,6 +501,63 @@ export function ResidentDetailView({
                     required
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-activity-level">평소 활동량</Label>
+                <select
+                  id="edit-activity-level"
+                  name="activityLevel"
+                  defaultValue={ACTIVITY_LEVEL_OPTIONS.find(
+                    (option) => option.label === detail.checkup.activityLevel,
+                  )?.value ?? "sedentary"}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  {ACTIVITY_LEVEL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-meals-per-day">하루 식사 횟수</Label>
+                  <select
+                    id="edit-meals-per-day"
+                    name="mealsPerDay"
+                    defaultValue={detail.mealsPerDay === "-" ? "3" : String(detail.mealsPerDay)}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}회</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-chewing-difficulty">씹기 어려움</Label>
+                  <select
+                    id="edit-chewing-difficulty"
+                    name="chewingDifficulty"
+                    defaultValue={detail.chewingDifficulty ? "yes" : "no"}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    <option value="no">없음</option>
+                    <option value="yes">있음</option>
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-mobility-level">거동 상태</Label>
+                <select
+                  id="edit-mobility-level"
+                  name="mobilityLevel"
+                  defaultValue={detail.mobilityLevel === "보행 도움 필요"
+                    ? "needs_assistance"
+                    : detail.mobilityLevel === "와상"
+                      ? "bedridden"
+                      : "independent"}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  <option value="independent">독립 보행</option>
+                  <option value="needs_assistance">보행 도움 필요</option>
+                  <option value="bedridden">와상</option>
+                </select>
               </div>
               <div className="flex justify-end gap-3 border-t border-border pt-5">
                 <Button type="button" variant="outline" onClick={() => setHealthEditOpen(false)}>취소</Button>

@@ -11,6 +11,10 @@ export const CONDITION_OPTIONS = [
 
 export type ConditionFlag = (typeof CONDITION_OPTIONS)[number]["value"];
 
+export function getConditionLabel(value: string): string {
+  return CONDITION_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
 export const ACTIVITY_LEVEL_OPTIONS = [
   { label: "거의 움직이지 않음", value: "sedentary" },
   { label: "가벼운 활동", value: "low_active" },
