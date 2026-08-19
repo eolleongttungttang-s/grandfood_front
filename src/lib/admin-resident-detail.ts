@@ -9,8 +9,14 @@ export type ResidentDetail = {
   allergies: string[];
   medications: { name: string; schedule: string }[];
   otherNote: string;
+  dislikedIngredients: string[];
+  restrictions: string[];
+  mealsPerDay: number | string;
+  chewingDifficulty: boolean | null;
+  mobilityLevel: string;
   checkup: {
     date: string;
+    activityLevel: string;
     systolicBP: number | string;
     fastingGlucose: number | string;
     hba1c: number | string;
@@ -41,8 +47,14 @@ export function getEmptyResidentDetail(resident?: Resident): ResidentDetail {
     allergies: resident?.allergies ?? [],
     medications: resident?.medications ?? [],
     otherNote: resident?.note ?? "-",
+    dislikedIngredients: [],
+    restrictions: [],
+    mealsPerDay: "-",
+    chewingDifficulty: null,
+    mobilityLevel: "-",
     checkup: {
       date: "-",
+      activityLevel: "-",
       systolicBP: "-",
       fastingGlucose: "-",
       hba1c: "-",
@@ -152,8 +164,14 @@ export function getResidentDetail(resident: Resident): ResidentDetail {
     allergies,
     medications,
     otherNote: resident.note,
+    dislikedIngredients: [],
+    restrictions: [],
+    mealsPerDay: 3,
+    chewingDifficulty: false,
+    mobilityLevel: "독립 보행",
     checkup: {
       date: "2026.05.14",
+      activityLevel: "저활동",
       systolicBP,
       fastingGlucose,
       hba1c,

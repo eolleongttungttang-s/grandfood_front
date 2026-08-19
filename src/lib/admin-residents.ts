@@ -1,7 +1,5 @@
 export type RiskLevel = "고위험" | "주의" | "보통";
 
-export const RESIDENT_CASE_WORKERS_STORAGE_KEY = "grandfood_resident_case_workers";
-
 export type Resident = {
   id: string;
   /** 기관별 화면 표시 번호. 백엔드 요청에는 id(UUID)를 사용한다. */
@@ -9,7 +7,7 @@ export type Resident = {
   name: string;
   caseWorker?: string;
   age: number;
-  gender: "여" | "남";
+  gender: "여" | "남" | "미상";
   facilityCode?: string;
   address?: string;
   /** 기존 테스트 데이터 호환용 동 단위 주소 */
