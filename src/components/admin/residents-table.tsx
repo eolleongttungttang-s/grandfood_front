@@ -18,8 +18,8 @@ import {
   type ConditionFlag,
 } from "@/lib/admin-ward-registration";
 import { readAdminSession } from "@/lib/admin-auth";
-import { createFacilityWard } from "@/lib/admin-wards-api";
-import { saveAdminRecommendationProfile } from "@/lib/admin-recommendation-profile";
+import { createFacilityWard, updateFacilityWardHealthProfile } from "@/lib/admin-wards-api";
+import { getJson } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,13 @@ type SortKey = "no" | "age" | "risk";
 
 const RISK_ORDER: Record<RiskLevel, number> = { 고위험: 0, 주의: 1, 보통: 2 };
 
+type CareFacilityOption = {
+  facility_id: string;
+  name: string;
+  facility_code: string;
+  facility_type: "MUNICIPALITY" | "NURSING_HOME" | "WELFARE_CENTER";
+};
+
 export function ResidentsTable({
   data,
   initialRisk = "all",
@@ -76,6 +83,7 @@ export function ResidentsTable({
   const [canRegister, setCanRegister] = useState(false);
   const [requiresFacilitySelection, setRequiresFacilitySelection] = useState(false);
   const [facilityCode, setFacilityCode] = useState("");
+  const [careFacilities, setCareFacilities] = useState<CareFacilityOption[]>([]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -92,6 +100,15 @@ export function ResidentsTable({
           session?.accessLevel === "MUNICIPALITY_STAFF",
       );
       setFacilityCode(session?.careFacilityCode ?? session?.facilityCode ?? "");
+      if (
+        session?.accessLevel === "SUPER_ADMIN" ||
+        session?.accessLevel === "MUNICIPALITY_ADMIN" ||
+        session?.accessLevel === "MUNICIPALITY_STAFF"
+      ) {
+        void getJson<CareFacilityOption[]>("/api/admin/facilities")
+          .then((items) => setCareFacilities(items.filter((item) => item.facility_type !== "MUNICIPALITY")))
+          .catch(() => setCareFacilities([]));
+      }
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
@@ -374,10 +391,8 @@ export function ResidentsTable({
       <RegisterResidentDialog
         open={registerOpen}
         facilityCode={facilityCode}
-        facilityCodes={Array.from(
-          new Set(residents.map((resident) => resident.facilityCode).filter(Boolean)),
-        ) as string[]}
-        previewOnly={requiresFacilitySelection}
+        facilities={careFacilities}
+        requiresFacilitySelection={requiresFacilitySelection}
         nextResidentId={getNextResidentId(facilityCode)}
         onClose={() => setRegisterOpen(false)}
         onRegister={registerResident}
@@ -389,16 +404,16 @@ export function ResidentsTable({
 function RegisterResidentDialog({
   open,
   facilityCode,
-  facilityCodes,
-  previewOnly,
+  facilities,
+  requiresFacilitySelection,
   nextResidentId,
   onClose,
   onRegister,
 }: {
   open: boolean;
   facilityCode: string;
-  facilityCodes: string[];
-  previewOnly: boolean;
+  facilities: CareFacilityOption[];
+  requiresFacilitySelection: boolean;
   nextResidentId: string;
   onClose: () => void;
   onRegister: (resident: Resident) => void;
@@ -409,7 +424,7 @@ function RegisterResidentDialog({
   const [mealsPerDay, setMealsPerDay] = useState<1 | 2 | 3 | 4>(3);
   const [chewingDifficulty, setChewingDifficulty] = useState(false);
   const [mobilityLevel, setMobilityLevel] = useState<"independent" | "needs_assistance" | "bedridden">("independent");
-  const [selectedFacilityCode, setSelectedFacilityCode] = useState("");
+  const [selectedFacilityId, setSelectedFacilityId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -427,8 +442,8 @@ function RegisterResidentDialog({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (previewOnly) {
-      toast.info("관리자 대상자 등록은 백엔드 시설 지정 API 연결 후 사용할 수 있습니다.");
+    if (requiresFacilitySelection && !selectedFacilityId) {
+      toast.error("대상자를 등록할 산하시설을 선택해 주세요.");
       return;
     }
     const form = new FormData(event.currentTarget);
@@ -465,6 +480,7 @@ function RegisterResidentDialog({
     setSubmitting(true);
     try {
       const resident = await createFacilityWard({
+        care_facility_id: requiresFacilitySelection ? selectedFacilityId : null,
         name,
         birth_date: birthDate,
         gender: gender === "남" ? "male" : "female",
@@ -481,21 +497,16 @@ function RegisterResidentDialog({
         medications_note: medicationsNote || null,
         note: note || null,
       });
-      saveAdminRecommendationProfile(resident.id, {
-        checkupDate: new Date().toISOString().slice(0, 10),
-        heightCm,
-        weightKg,
-        activityLevel,
-        conditionFlags,
-        conditionsNote,
-        allergies,
-        dislikedIngredients,
-        restrictions,
-        medications,
-        mealsPerDay,
-        chewingDifficulty,
-        mobilityLevel,
-      });
+      try {
+        await updateFacilityWardHealthProfile(resident.id, {
+          checkup_date: new Date().toISOString().slice(0, 10),
+          meals_per_day: mealsPerDay,
+          chewing_difficulty: chewingDifficulty,
+          mobility_level: mobilityLevel,
+        });
+      } catch {
+        toast.warning("대상자는 등록됐지만 생활정보 저장에 실패했습니다. 상세 화면에서 다시 저장해 주세요.");
+      }
       onRegister({
         ...resident,
         displayId: nextResidentId,
@@ -524,9 +535,7 @@ function RegisterResidentDialog({
               대상자 등록
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {previewOnly
-                ? "관리 범위 내 산하시설을 선택하는 등록 화면 틀입니다. 현재는 저장되지 않습니다."
-                : "급식 지원 대상자의 기본 정보를 입력해 주세요."}
+              급식 지원 대상자의 기본 정보를 입력해 주세요.
             </p>
           </div>
           <Button type="button" variant="ghost" size="icon-sm" onClick={onClose}>
@@ -596,17 +605,19 @@ function RegisterResidentDialog({
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label>소속 기관</Label>
-              {previewOnly ? (
+              {requiresFacilitySelection ? (
                 <Select
-                  value={selectedFacilityCode}
-                  onValueChange={(value) => setSelectedFacilityCode(value ?? "")}
+                  value={selectedFacilityId}
+                  onValueChange={(value) => setSelectedFacilityId(value ?? "")}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="대상자를 등록할 산하시설을 선택해 주세요" />
                   </SelectTrigger>
                   <SelectContent>
-                    {facilityCodes.map((code) => (
-                      <SelectItem key={code} value={code}>{code}</SelectItem>
+                    {facilities.map((facility) => (
+                      <SelectItem key={facility.facility_id} value={facility.facility_id}>
+                        {facility.name} ({facility.facility_code})
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -616,8 +627,8 @@ function RegisterResidentDialog({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                {previewOnly
-                  ? "백엔드에서 care_facility_id 지정 등록을 지원하면 실제 시설 목록 API와 연결합니다."
+                {requiresFacilitySelection
+                  ? facilities.length > 0 ? "관리 범위 내 산하시설을 선택해 주세요." : "조회 가능한 산하시설 목록이 없습니다."
                   : "소속 기관은 로그인한 담당자 정보로 자동 지정됩니다."}
               </p>
             </div>
@@ -745,8 +756,8 @@ function RegisterResidentDialog({
             <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
               취소
             </Button>
-            <Button type="submit" disabled={submitting || (previewOnly && !selectedFacilityCode)}>
-              <Plus /> {previewOnly ? "API 연결 후 등록" : submitting ? "등록 중..." : "대상자 등록"}
+            <Button type="submit" disabled={submitting || (requiresFacilitySelection && !selectedFacilityId)}>
+              <Plus /> {submitting ? "등록 중..." : "대상자 등록"}
             </Button>
           </div>
         </form>
