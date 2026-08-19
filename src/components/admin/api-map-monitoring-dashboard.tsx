@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getJson } from "@/lib/api";
+import { readAdminSession } from "@/lib/admin-auth";
 import type { WardSummary } from "@/lib/admin-wards-api";
 import { projectMapFeatures, type MapGeometry } from "@/lib/admin-map-geometry";
 
@@ -111,6 +112,7 @@ export function ApiMapMonitoringDashboard() {
         getJson<FacilityRow[]>("/api/admin/facilities"),
         getJson<WardSummary[]>("/gov/facility/wards"),
       ]);
+      const session = readAdminSession();
       let nextFeatures: RegionFeature[];
       if (regionResult.status === "fulfilled" && regionResult.value.features?.length) {
         nextFeatures = regionResult.value.features;
@@ -120,9 +122,27 @@ export function ApiMapMonitoringDashboard() {
         setBoundarySource("public");
       }
       setFeatures(nextFeatures);
-      setFacilities(facilityResult.status === "fulfilled" ? facilityResult.value : []);
+      const sessionMunicipality: FacilityRow[] =
+        facilityResult.status === "rejected" &&
+        (session?.accessLevel === "MUNICIPALITY_ADMIN" || session?.accessLevel === "MUNICIPALITY_STAFF") &&
+        session.facilityId && session.facilityName && session.facilityCode
+          ? [{
+              facility_id: session.facilityId,
+              name: session.facilityName,
+              facility_type: "MUNICIPALITY",
+              department: session.facilityName,
+              facility_code: session.facilityCode,
+            }]
+          : [];
+      setFacilities(facilityResult.status === "fulfilled" ? facilityResult.value : sessionMunicipality);
       setWards(wardResult.status === "fulfilled" ? wardResult.value : []);
-      setDataWarning(facilityResult.status === "rejected" || wardResult.status === "rejected" ? "시설 또는 대상자 API를 불러오지 못해 해당 항목을 비워 두었습니다." : null);
+      setDataWarning(
+        wardResult.status === "rejected"
+          ? "대상자 API를 불러오지 못해 대상자 현황을 비워 두었습니다."
+          : facilityResult.status === "rejected" && sessionMunicipality.length === 0
+            ? "현재 계정으로 시설 목록을 조회할 수 없어 시설 현황을 비워 두었습니다."
+            : null,
+      );
       setSelectedCode((current) => current && nextFeatures.some((item) => item.properties.code === current) ? current : null);
     } catch (loadError) {
       setFeatures([]);
@@ -176,7 +196,7 @@ export function ApiMapMonitoringDashboard() {
           <CardHeader className="border-b"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="flex items-center gap-2"><MapPinned className="h-5 w-5 text-primary" />{level === "sido" ? "전국 시·도 현황" : `${parentName ?? "선택 지역"} 시·군·구 현황`}</CardTitle><p className="mt-1 text-xs text-muted-foreground">{level === "sido" ? "시·도를 클릭하면 시·군·구 지도로 이동합니다." : "구를 클릭하면 우측에서 구청과 산하시설 현황을 확인할 수 있습니다."}</p></div><div className="flex gap-2">{level === "sigungu" && <Button size="sm" variant="outline" onClick={goNational}><ArrowLeft />전국으로</Button>}<Button size="sm" variant="outline" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? "animate-spin" : ""} />새로고침</Button></div></div></CardHeader>
           <CardContent className="p-0"><div className={`relative overflow-hidden bg-gradient-to-br from-slate-50 via-sky-50/50 to-emerald-50/60 ${level === "sido" ? "min-h-[680px]" : "min-h-[600px]"}`}>{loading ? <div className={`flex items-center justify-center text-sm text-muted-foreground ${level === "sido" ? "h-[680px]" : "h-[600px]"}`}>실제 행정구역 경계를 불러오는 중입니다.</div> : error ? <div className="flex h-[600px] items-center justify-center px-6 text-center text-sm text-destructive">{error}</div> : <svg viewBox="0 0 500 500" className={`mx-auto w-full ${level === "sido" ? "h-[680px] max-w-[860px]" : "h-[600px] max-w-[960px]"}`} role="img" aria-label="대한민국 3D 행정구역 지도"><defs><filter id="apiRegionShadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="5" stdDeviation="4" floodOpacity=".16" /></filter></defs><g filter="url(#apiRegionShadow)">{features.map((feature) => <path key={`depth-${feature.properties.code}`} d={pathByCode.get(feature.properties.code)} fill="#526174" stroke="#334155" strokeWidth="1" opacity=".42" transform="translate(0 5)" />)}{features.map((feature) => { const active = selectedCode === feature.properties.code; return <path key={feature.properties.code} d={pathByCode.get(feature.properties.code)} fill={active ? "#2f6b55" : "#94a3b8"} stroke={active ? "#ffffff" : "rgba(255,255,255,.82)"} strokeWidth={active ? 3 : 1} transform={active ? "translate(0 -3)" : undefined} className="cursor-pointer transition-all duration-200 hover:fill-slate-500" onClick={() => selectRegion(feature)}><title>{feature.properties.name}</title></path>; })}{features.map((feature) => { const placement = labelByCode.get(feature.properties.code); const name = feature.properties.name; if (!placement || !name) return null; const fontSize = Math.min(level === "sigungu" ? 9 : 11, placement.width / Math.max(name.length * .9, 1), placement.height * .34); if (placement.width < (level === "sido" ? 34 : 24) || fontSize < 5) return null; return <text key={`label-${feature.properties.code}`} x={placement.x} y={placement.y - (selectedCode === feature.properties.code ? 3 : 0)} textAnchor="middle" dominantBaseline="middle" fontSize={fontSize} className="pointer-events-none select-none fill-white font-bold [paint-order:stroke] stroke-black/20 stroke-[1.5px]">{name}</text>; })}</g></svg>}<div className="absolute bottom-4 left-4 rounded-xl border bg-background/90 px-3 py-2 text-xs shadow-sm backdrop-blur"><span className="font-semibold">현재 단계</span><span className="mx-2 text-muted-foreground">전국</span>{parentName && <><span>›</span><span className="ml-2 font-bold text-primary">{parentName}</span></>}</div></div></CardContent>
         </Card>
-        <Card><CardHeader><CardTitle className="flex items-center gap-2"><MapIcon className="h-5 w-5 text-primary" />{level === "sigungu" ? "구청 및 산하시설" : "선택 지역"}</CardTitle></CardHeader><CardContent className="space-y-5">{selectedFeature ? <><div><Badge variant="outline">{level === "sido" ? "시·도" : "지자체"} · {selectedFeature.properties.code}</Badge><h2 className="mt-2 text-2xl font-extrabold">{selectedFeature.properties.name}</h2></div><div className="grid grid-cols-2 gap-3"><div className="rounded-xl border p-4"><p className="text-xs text-muted-foreground">관할 시설</p><p className="mt-1 text-2xl font-extrabold">{level === "sigungu" ? selectedFacilities.length : selectedRegionFacilities.length}개</p></div><div className="rounded-xl border p-4"><p className="text-xs text-muted-foreground">관리 대상자</p><p className="mt-1 text-2xl font-extrabold">{level === "sigungu" ? selectedWardCount : selectedRegionWardCount}명</p></div></div>{level === "sigungu" && <div className="space-y-2"><p className="text-sm font-bold">산하시설 목록</p>{selectedFacilities.length ? selectedFacilities.map((facility) => {
+        <Card><CardHeader><CardTitle className="flex items-center gap-2"><MapIcon className="h-5 w-5 text-primary" />{level === "sigungu" ? "구청 및 산하시설" : "선택 지역"}</CardTitle></CardHeader><CardContent className="space-y-5">{selectedFeature ? <><div><Badge variant="outline">{level === "sido" ? "시·도" : "지자체"} · {selectedFeature.properties.code}</Badge><h2 className="mt-2 text-2xl font-extrabold">{selectedMunicipality?.name ?? selectedFeature.properties.name}</h2>{selectedMunicipality && <p className="mt-1 text-xs text-muted-foreground">기관코드 {selectedMunicipality.facility_code}</p>}</div><div className="grid grid-cols-2 gap-3"><div className="rounded-xl border p-4"><p className="text-xs text-muted-foreground">관할 시설</p><p className="mt-1 text-2xl font-extrabold">{level === "sigungu" ? selectedFacilities.length : selectedRegionFacilities.length}개</p></div><div className="rounded-xl border p-4"><p className="text-xs text-muted-foreground">관리 대상자</p><p className="mt-1 text-2xl font-extrabold">{level === "sigungu" ? selectedWardCount : selectedRegionWardCount}명</p></div></div>{level === "sigungu" && <div className="space-y-2"><p className="text-sm font-bold">산하시설 목록</p>{selectedFacilities.length ? selectedFacilities.map((facility) => {
           const facilityWards = wards.filter((ward) => ward.facility_code === facility.facility_code);
           const cautionCount = facilityWards.filter((ward) => ward.condition_flags.length > 0).length;
           const expanded = expandedFacilityId === facility.facility_id;

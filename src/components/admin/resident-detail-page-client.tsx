@@ -5,14 +5,13 @@ import Link from "next/link";
 
 import { ResidentDetailView } from "@/components/admin/resident-detail-view";
 import { buttonVariants } from "@/components/ui/button";
-import {
-  getEmptyResidentDetail,
-  type ResidentDetail,
-} from "@/lib/admin-resident-detail";
+import { type ResidentDetail } from "@/lib/admin-resident-detail";
 import { type Resident } from "@/lib/admin-residents";
-import { fetchFacilityWards } from "@/lib/admin-wards-api";
-import { readAdminRecommendationProfile } from "@/lib/admin-recommendation-profile";
-import { ACTIVITY_LEVEL_OPTIONS, getConditionLabel } from "@/lib/admin-ward-registration";
+import {
+  fetchFacilityWardDetail,
+  fetchFacilityWards,
+  wardDetailToView,
+} from "@/lib/admin-wards-api";
 
 export function ResidentDetailPageClient({
   residentId,
@@ -43,39 +42,9 @@ export function ResidentDetailPageClient({
             caseWorker: foundResident.caseWorker ?? "-",
           };
           setResident(apiResident);
-          // 상세 API가 준비되기 전까지 등록 화면에서 받은 추천 프로필을 UUID로 연결한다.
-          // 저장값이 없으면 임의 수치를 만들지 않고 빈 상세 화면을 사용한다.
-          const savedProfile = readAdminRecommendationProfile(apiResident.id);
-          const emptyDetail = getEmptyResidentDetail(apiResident);
-          setDetail(savedProfile ? {
-            ...emptyDetail,
-            diagnoses: savedProfile.conditionFlags.map(getConditionLabel),
-            allergies: savedProfile.allergies,
-            medications: savedProfile.medications,
-            otherNote: savedProfile.conditionsNote || emptyDetail.otherNote,
-            dislikedIngredients: savedProfile.dislikedIngredients,
-            restrictions: savedProfile.restrictions,
-            mealsPerDay: savedProfile.mealsPerDay ?? "-",
-            chewingDifficulty: savedProfile.chewingDifficulty,
-            mobilityLevel: savedProfile.mobilityLevel === null
-              ? "-"
-              : savedProfile.mobilityLevel === "independent"
-              ? "독립 보행"
-              : savedProfile.mobilityLevel === "needs_assistance"
-                ? "보행 도움 필요"
-                : "와상",
-            checkup: {
-              ...emptyDetail.checkup,
-              date: savedProfile.checkupDate,
-              heightCm: savedProfile.heightCm ?? "-",
-              weightKg: savedProfile.weightKg ?? "-",
-              activityLevel: savedProfile.activityLevel === null
-                ? "-"
-                : ACTIVITY_LEVEL_OPTIONS.find(
-                (option) => option.value === savedProfile.activityLevel,
-              )?.label ?? savedProfile.activityLevel,
-            },
-          } : emptyDetail);
+          const wardDetail = await fetchFacilityWardDetail(apiResident.id);
+          if (cancelled) return;
+          setDetail(wardDetailToView(wardDetail, apiResident));
           setLoading(false);
           return;
         }

@@ -7,6 +7,8 @@ export const CONDITION_OPTIONS = [
   { label: "신장질환", value: "chronic_kidney_disease" },
   { label: "치매", value: "dementia" },
   { label: "관절염", value: "arthritis" },
+  { label: "이상지질혈증", value: "dyslipidemia" },
+  { label: "골다공증", value: "osteoporosis" },
 ] as const;
 
 export type ConditionFlag = (typeof CONDITION_OPTIONS)[number]["value"];
@@ -32,6 +34,7 @@ export type WardFoodRuleInput = {
 };
 
 export type CreateFacilityWardPayload = {
+  care_facility_id?: string | null;
   name: string;
   birth_date: string;
   gender: "male" | "female";

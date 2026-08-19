@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Pencil, X } from "lucide-react";
+import { ChevronLeft, Pencil, UserRoundPen, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Resident } from "@/lib/admin-residents";
@@ -14,10 +14,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MealImageUpload } from "@/components/admin/meal-image-upload";
 import { ResidentMonthlyRecommendation } from "@/components/admin/resident-monthly-recommendation";
-import { updateAdminRecommendationProfile } from "@/lib/admin-recommendation-profile";
-import { ACTIVITY_LEVEL_OPTIONS, type ActivityLevel } from "@/lib/admin-ward-registration";
-
-const RESIDENT_DETAIL_OVERRIDES_KEY = "grandfood_resident_detail_overrides";
+import {
+  updateFacilityWardHealthProfile,
+  updateFacilityWardBasicInfo,
+  toResident,
+  wardDetailToView,
+} from "@/lib/admin-wards-api";
+import {
+  ACTIVITY_LEVEL_OPTIONS,
+  CONDITION_OPTIONS,
+  makeFoodRules,
+  type ActivityLevel,
+} from "@/lib/admin-ward-registration";
 
 const MEAL_TONE_CLASS: Record<string, string> = {
   완식: "bg-foreground",
@@ -50,43 +58,23 @@ export function ResidentDetailView({
   const [detail, setDetail] = useState(initialDetail);
   const [editOpen, setEditOpen] = useState(false);
   const [healthEditOpen, setHealthEditOpen] = useState(false);
+  const [basicEditOpen, setBasicEditOpen] = useState(false);
+  const [residentView, setResidentView] = useState(resident);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      try {
-        const saved = window.localStorage.getItem(RESIDENT_DETAIL_OVERRIDES_KEY);
-        const overrides = saved
-          ? (JSON.parse(saved) as Record<string, ResidentDetail>)
-          : {};
-        const stored = overrides[resident.id];
-        if (stored) {
-          setDetail({
-            ...initialDetail,
-            ...stored,
-            dislikedIngredients: stored.dislikedIngredients ?? [],
-            restrictions: stored.restrictions ?? [],
-            mealsPerDay: stored.mealsPerDay ?? "-",
-            chewingDifficulty: stored.chewingDifficulty ?? null,
-            mobilityLevel: stored.mobilityLevel ?? "-",
-            checkup: { ...initialDetail.checkup, ...(stored.checkup ?? {}) },
-          });
-        }
-      } catch {
-        window.localStorage.removeItem(RESIDENT_DETAIL_OVERRIDES_KEY);
-      }
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [initialDetail, resident.id]);
-
-  function saveMedicalInfo(event: React.FormEvent<HTMLFormElement>) {
+  async function saveMedicalInfo(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const diagnoses = String(form.get("diagnoses") ?? "")
+    const conditionFlags = form.getAll("conditionFlags").map(String);
+    const allergies = String(form.get("allergies") ?? "")
       .split(/[,\n]/)
       .map((item) => item.trim())
       .filter(Boolean);
-    const allergies = String(form.get("allergies") ?? "")
+    const dislikedIngredients = String(form.get("dislikedIngredients") ?? "")
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const restrictions = String(form.get("restrictions") ?? "")
       .split(/[,\n]/)
       .map((item) => item.trim())
       .filter(Boolean);
@@ -102,34 +90,26 @@ export function ResidentDetailView({
         };
       });
     const otherNote = String(form.get("otherNote") ?? "").trim();
-    const nextDetail = {
-      ...detail,
-      diagnoses,
-      allergies,
-      medications,
-      otherNote: otherNote || "-",
-    };
-
+    setSaving(true);
     try {
-      const saved = window.localStorage.getItem(RESIDENT_DETAIL_OVERRIDES_KEY);
-      const overrides = saved
-        ? (JSON.parse(saved) as Record<string, ResidentDetail>)
-        : {};
-      window.localStorage.setItem(
-        RESIDENT_DETAIL_OVERRIDES_KEY,
-        JSON.stringify({ ...overrides, [resident.id]: nextDetail }),
-      );
-    } catch {
-      toast.error("수정 내용을 저장하지 못했습니다.");
+      const updated = await updateFacilityWardHealthProfile(resident.id, {
+        condition_flags: conditionFlags,
+        conditions_note: otherNote || null,
+        food_rules: makeFoodRules(allergies, dislikedIngredients, restrictions),
+        medications_note: medications.map((item) => `${item.name} / ${item.schedule}`).join("\n") || null,
+      });
+      setDetail(wardDetailToView(updated, resident));
+      setEditOpen(false);
+      toast.success("질환·알레르기·복약 정보를 수정했습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "수정 내용을 저장하지 못했습니다.");
       return;
+    } finally {
+      setSaving(false);
     }
-
-    setDetail(nextDetail);
-    setEditOpen(false);
-    toast.success("질환·알레르기·복약 정보를 수정했습니다.");
   }
 
-  function saveHealthInfo(event: React.FormEvent<HTMLFormElement>) {
+  async function saveHealthInfo(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const heightCm = Number(form.get("heightCm"));
@@ -151,55 +131,51 @@ export function ResidentDetailView({
       return;
     }
 
-    const nextDetail = {
-      ...detail,
-      mealsPerDay: mealsPerDay ?? "-",
-      chewingDifficulty,
-      mobilityLevel: mobilityLevel === null
-        ? "-"
-        : mobilityLevel === "independent"
-        ? "독립 보행"
-        : mobilityLevel === "needs_assistance"
-          ? "보행 도움 필요"
-          : "와상",
-      checkup: {
-        ...detail.checkup,
-        date: checkupDate || "-",
-        heightCm,
-        weightKg,
-        activityLevel: activityLevel === null
-          ? "-"
-          : ACTIVITY_LEVEL_OPTIONS.find(
-          (option) => option.value === activityLevel,
-        )?.label ?? activityLevel,
-      },
-    };
+    setSaving(true);
     try {
-      const saved = window.localStorage.getItem(RESIDENT_DETAIL_OVERRIDES_KEY);
-      const overrides = saved
-        ? (JSON.parse(saved) as Record<string, ResidentDetail>)
-        : {};
-      window.localStorage.setItem(
-        RESIDENT_DETAIL_OVERRIDES_KEY,
-        JSON.stringify({ ...overrides, [resident.id]: nextDetail }),
-      );
-      updateAdminRecommendationProfile(resident.id, {
-        checkupDate: checkupDate || "-",
-        heightCm,
-        weightKg,
-        activityLevel,
-        mealsPerDay,
-        chewingDifficulty,
-        mobilityLevel,
+      const updated = await updateFacilityWardHealthProfile(resident.id, {
+        checkup_date: checkupDate || null,
+        height_cm: heightCm,
+        weight_kg: weightKg,
+        activity_level: activityLevel,
+        meals_per_day: mealsPerDay,
+        chewing_difficulty: chewingDifficulty,
+        mobility_level: mobilityLevel,
       });
-    } catch {
-      toast.error("수정 내용을 저장하지 못했습니다.");
+      setDetail(wardDetailToView(updated, resident));
+      setHealthEditOpen(false);
+      toast.success("추천 건강 프로필을 수정했습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "수정 내용을 저장하지 못했습니다.");
       return;
+    } finally {
+      setSaving(false);
     }
+  }
 
-    setDetail(nextDetail);
-    setHealthEditOpen(false);
-    toast.success("추천 건강 프로필을 수정했습니다.");
+  async function saveBasicInfo(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setSaving(true);
+    try {
+      const updated = await updateFacilityWardBasicInfo(resident.id, {
+        name: String(form.get("name") ?? "").trim(),
+        birth_date: String(form.get("birthDate") ?? ""),
+        gender: String(form.get("gender")) === "male" ? "male" : "female",
+        phone: String(form.get("phone") ?? "").trim(),
+        address: String(form.get("address") ?? "").trim(),
+        guardian_name: String(form.get("guardianName") ?? "").trim() || null,
+        guardian_phone: String(form.get("guardianPhone") ?? "").trim() || null,
+        note: String(form.get("note") ?? "").trim() || null,
+      });
+      setResidentView((current) => ({ ...current, ...toResident(updated) }));
+      setBasicEditOpen(false);
+      toast.success("대상자 기본정보를 수정했습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "기본정보를 수정하지 못했습니다.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const completeCount = detail.mealHistory.filter((m) => m === "완식").length;
@@ -219,7 +195,7 @@ export function ResidentDetailView({
           </Link>
           <span className="text-sidebar-foreground/40">/</span>
           <span className="font-semibold">
-            {resident.name} ({resident.displayId ?? resident.id})
+            {residentView.name} ({residentView.displayId ?? residentView.id})
           </span>
         </div>
         <span className="text-xs text-sidebar-foreground/60">
@@ -230,26 +206,29 @@ export function ResidentDetailView({
       <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-border bg-card p-5 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-xl font-extrabold text-muted-foreground">
-            {resident.name.slice(0, 1)}
+            {residentView.name.slice(0, 1)}
           </div>
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
               <span className="text-xl font-extrabold tracking-tight text-foreground">
-                {resident.name}
+                {residentView.name}
               </span>
               <Badge className={RISK_BADGE_CLASS[resident.risk]}>{resident.risk}</Badge>
               {detail.livingAlone && <Badge variant="outline">독거</Badge>}
             </div>
             <span className="text-sm text-muted-foreground">
-              {resident.age}세 · {resident.gender} · {resident.address ?? resident.dong} · 담당{" "}
-              {resident.caseWorker ?? detail.caseWorker}
+              {residentView.age}세 · {residentView.gender} · {residentView.address ?? residentView.dong} · 담당{" "}
+              {residentView.caseWorker ?? detail.caseWorker}
             </span>
             <span className="text-sm text-muted-foreground">
-              보호자 {resident.guardianName} {resident.guardianPhone} · 앱 연동됨
+              보호자 {residentView.guardianName} {residentView.guardianPhone} · 앱 연동됨
             </span>
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setBasicEditOpen(true)}>
+            <UserRoundPen /> 기본정보 수정
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -268,7 +247,7 @@ export function ResidentDetailView({
 
       <MealImageUpload
         residentId={resident.id}
-        residentName={resident.name}
+        residentName={residentView.name}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -369,7 +348,7 @@ export function ResidentDetailView({
           </div>
         </div>
 
-        <ResidentMonthlyRecommendation resident={resident} detail={detail} />
+        <ResidentMonthlyRecommendation resident={residentView} detail={detail} />
       </div>
 
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -417,13 +396,22 @@ export function ResidentDetailView({
             </header>
             <form onSubmit={saveMedicalInfo} className="space-y-5 px-6 py-6">
               <div className="space-y-2">
-                <Label htmlFor="edit-diagnoses">진단 질환</Label>
-                <Textarea
-                  id="edit-diagnoses"
-                  name="diagnoses"
-                  defaultValue={detail.diagnoses.join(", ")}
-                  placeholder="쉼표 또는 줄바꿈으로 구분해 주세요."
-                />
+                <Label>진단 질환</Label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {CONDITION_OPTIONS.map((option) => (
+                    <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm">
+                      <input
+                        type="checkbox"
+                        name="conditionFlags"
+                        value={option.value}
+                        defaultChecked={detail.diagnoses.includes(option.label)}
+                        className="h-4 w-4 accent-foreground"
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">대상자 등록 화면과 동일한 질환 코드로 저장됩니다.</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-allergies">알레르기 및 금기</Label>
@@ -433,6 +421,16 @@ export function ResidentDetailView({
                   defaultValue={detail.allergies.join(", ")}
                   placeholder="예: 우유, 견과류"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-disliked-ingredients">기피 식재료</Label>
+                  <Textarea id="edit-disliked-ingredients" name="dislikedIngredients" defaultValue={detail.dislikedIngredients.join(", ")} placeholder="예: 가지, 피망" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-restrictions">식이 제한</Label>
+                  <Textarea id="edit-restrictions" name="restrictions" defaultValue={detail.restrictions.join(", ")} placeholder="예: 딱딱한 음식" />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-medications">복약 정보</Label>
@@ -589,6 +587,32 @@ export function ResidentDetailView({
                 <Button type="button" variant="outline" onClick={() => setHealthEditOpen(false)}>취소</Button>
                 <Button type="submit">저장</Button>
               </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {basicEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <section role="dialog" aria-modal="true" aria-labelledby="basic-info-edit-title" className="max-h-full w-full max-w-xl overflow-y-auto rounded-2xl bg-card shadow-2xl">
+            <header className="flex items-start justify-between border-b border-border px-6 py-5">
+              <div><h2 id="basic-info-edit-title" className="text-xl font-bold">대상자 기본정보 수정</h2><p className="mt-1 text-sm text-muted-foreground">등록 당시 입력한 기본정보와 보호자 정보를 수정합니다.</p></div>
+              <Button type="button" variant="ghost" size="icon-sm" onClick={() => setBasicEditOpen(false)}><X /><span className="sr-only">닫기</span></Button>
+            </header>
+            <form onSubmit={saveBasicInfo} className="space-y-5 px-6 py-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2"><Label htmlFor="basic-name">이름</Label><Input id="basic-name" name="name" defaultValue={residentView.name} required /></div>
+                <div className="space-y-2"><Label htmlFor="basic-birth-date">생년월일</Label><Input id="basic-birth-date" name="birthDate" type="date" defaultValue={residentView.birthDate ?? ""} required /></div>
+                <div className="space-y-2"><Label htmlFor="basic-gender">성별</Label><select id="basic-gender" name="gender" defaultValue={residentView.gender === "남" ? "male" : "female"} className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"><option value="female">여</option><option value="male">남</option></select></div>
+                <div className="space-y-2"><Label htmlFor="basic-phone">대상자 연락처</Label><Input id="basic-phone" name="phone" type="tel" defaultValue={residentView.phone ?? ""} required /></div>
+              </div>
+              <div className="space-y-2"><Label htmlFor="basic-address">주소</Label><Input id="basic-address" name="address" defaultValue={residentView.address ?? residentView.dong} required /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2"><Label htmlFor="basic-guardian-name">보호자 이름</Label><Input id="basic-guardian-name" name="guardianName" defaultValue={residentView.guardianName === "미등록" ? "" : residentView.guardianName} /></div>
+                <div className="space-y-2"><Label htmlFor="basic-guardian-phone">보호자 연락처</Label><Input id="basic-guardian-phone" name="guardianPhone" type="tel" defaultValue={residentView.guardianPhone === "미등록" ? "" : residentView.guardianPhone} /></div>
+              </div>
+              <div className="space-y-2"><Label htmlFor="basic-note">일반 참고사항</Label><Textarea id="basic-note" name="note" defaultValue={residentView.note} /></div>
+              <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">기본정보 저장은 백엔드의 대상자 기본정보 수정 API 지원 후 정상 동작합니다.</p>
+              <div className="flex justify-end gap-3 border-t border-border pt-5"><Button type="button" variant="outline" onClick={() => setBasicEditOpen(false)}>취소</Button><Button type="submit" disabled={saving}>{saving ? "저장 중..." : "저장"}</Button></div>
             </form>
           </section>
         </div>

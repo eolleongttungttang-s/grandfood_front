@@ -5,10 +5,13 @@ export type Resident = {
   /** 기관별 화면 표시 번호. 백엔드 요청에는 id(UUID)를 사용한다. */
   displayId?: string;
   name: string;
+  birthDate?: string;
+  phone?: string;
   caseWorker?: string;
   age: number;
   gender: "여" | "남" | "미상";
   facilityCode?: string;
+  facilityId?: string;
   address?: string;
   /** 기존 테스트 데이터 호환용 동 단위 주소 */
   dong: string;
