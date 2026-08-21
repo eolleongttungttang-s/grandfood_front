@@ -29,12 +29,27 @@ type DishAnalysis = {
   description: string;
 };
 
-const DEMO_ANALYSIS: DishAnalysis[] = [
-  { name: "잡곡밥", consumedPercent: 85, description: "대부분 섭취했습니다." },
-  { name: "된장국", consumedPercent: 70, description: "절반 이상 섭취했습니다." },
-  { name: "제육볶음", consumedPercent: 90, description: "거의 모두 섭취했습니다." },
-  { name: "시금치나물", consumedPercent: 60, description: "절반 정도 섭취했습니다." },
-];
+type DietHistoryResponse = {
+  items?: Array<{
+    meal_id: string;
+    dishes?: Array<{
+      banchan_id: string;
+      banchan_name: string | null;
+      leftover_pct: number;
+    }>;
+  }>;
+};
+
+const ANALYSIS_POLL_INTERVAL_MS = 4_000;
+const ANALYSIS_POLL_MAX_ATTEMPTS = 8;
+
+function intakeDescription(percent: number) {
+  if (percent >= 90) return "거의 모두 섭취했습니다.";
+  if (percent >= 70) return "대부분 섭취했습니다.";
+  if (percent >= 50) return "절반 이상 섭취했습니다.";
+  if (percent > 0) return "섭취량이 절반보다 적습니다.";
+  return "섭취하지 않았습니다.";
+}
 
 type ImageSlotProps = {
   badge: string;
@@ -48,6 +63,18 @@ type ImageSlotProps = {
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
+function isHeicImage(file: File) {
+  return /\.(heic|heif)$/i.test(file.name) || file.type === "image/heic" || file.type === "image/heif";
+}
+
+async function convertHeicToJpeg(file: File) {
+  const { default: heic2any } = await import("heic2any");
+  const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+  const blob = Array.isArray(converted) ? converted[0] : converted;
+  const baseName = file.name.replace(/\.(heic|heif)$/i, "") || "meal-photo";
+  return new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: file.lastModified });
+}
+
 function ImageSlot({
   badge,
   description,
@@ -60,9 +87,9 @@ function ImageSlot({
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const validateAndChange = (file?: File) => {
+  const validateAndChange = async (file?: File) => {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
+    if (!file.type.startsWith("image/") && !isHeicImage(file)) {
       toast.error("이미지 파일만 업로드할 수 있어요.");
       return;
     }
@@ -70,18 +97,32 @@ function ImageSlot({
       toast.error("이미지는 10MB 이하로 올려주세요.");
       return;
     }
-    onChange(file);
+    if (!isHeicImage(file)) {
+      onChange(file);
+      return;
+    }
+    try {
+      const jpeg = await convertHeicToJpeg(file);
+      if (jpeg.size > MAX_IMAGE_SIZE) {
+        toast.error("JPG 변환 후 이미지가 10MB를 초과했습니다.");
+        return;
+      }
+      onChange(jpeg);
+      toast.success("아이폰 사진을 JPG로 변환했습니다.");
+    } catch {
+      toast.error("아이폰 사진을 JPG로 변환하지 못했습니다. 기기에서 JPG로 저장한 뒤 다시 시도해 주세요.");
+    }
   };
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    validateAndChange(event.target.files?.[0]);
+    void validateAndChange(event.target.files?.[0]);
     event.target.value = "";
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    validateAndChange(event.dataTransfer.files?.[0]);
+    void validateAndChange(event.dataTransfer.files?.[0]);
   };
 
   return (
@@ -114,7 +155,7 @@ function ImageSlot({
         id={inputId}
         className="sr-only"
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
         onChange={handleInputChange}
       />
 
@@ -170,7 +211,7 @@ function ImageSlot({
             <ImagePlus className="h-5 w-5 text-muted-foreground" />
           </div>
           <span className="text-sm font-bold text-foreground">클릭하거나 사진을 끌어 놓으세요</span>
-          <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, WEBP · 최대 10MB</span>
+          <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, WEBP, HEIC · 최대 10MB</span>
         </div>
       )}
     </div>
@@ -213,6 +254,40 @@ export function MealImageUpload({
 
   const canAnalyze = Boolean(beforeImage && afterImage && mealSlot);
 
+  const fetchAnalysisResult = async (mealId: string, accessToken?: string) => {
+    for (let attempt = 0; attempt < ANALYSIS_POLL_MAX_ATTEMPTS; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, ANALYSIS_POLL_INTERVAL_MS));
+      const response = await fetch(
+        `${getApiUrl()}/app/elder/${encodeURIComponent(residentId)}/diet-history?days=1`,
+        { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined },
+      );
+      const result = (await response.json().catch(() => null)) as
+        | DietHistoryResponse
+        | { detail?: unknown }
+        | null;
+      if (!response.ok) {
+        const fallback = response.status === 403
+          ? "담당자 계정의 잔반 분석 결과 조회 권한이 아직 백엔드에 연결되지 않았습니다."
+          : "잔반 분석 결과를 조회하지 못했습니다.";
+        throw new Error(extractErrorMessage((result as { detail?: unknown } | null)?.detail, fallback));
+      }
+      const match = (result as DietHistoryResponse | null)?.items?.find(
+        (item) => item.meal_id === mealId,
+      );
+      if (match?.dishes?.length) {
+        return match.dishes.map((dish) => {
+          const consumedPercent = Math.max(0, Math.min(100, Math.round(100 - dish.leftover_pct)));
+          return {
+            name: dish.banchan_name ?? "반찬",
+            consumedPercent,
+            description: intakeDescription(consumedPercent),
+          };
+        });
+      }
+    }
+    throw new Error("GPU 분석이 아직 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.");
+  };
+
   const analyzeImages = async () => {
     if (
       !beforeImage ||
@@ -245,15 +320,17 @@ export function MealImageUpload({
         },
       );
       const result = (await response.json().catch(() => null)) as
-        | { detail?: unknown }
+        | { id?: string; detail?: unknown }
         | null;
       if (!response.ok) {
         throw new Error(extractErrorMessage(result?.detail, "이미지를 저장하지 못했습니다."));
       }
 
-      await new Promise((resolve) => window.setTimeout(resolve, 1800));
-      setAnalysisResult(DEMO_ANALYSIS);
-      toast.success("이미지 저장과 잔반 분석이 완료됐어요.");
+      if (!result?.id) {
+        throw new Error("이미지는 저장됐지만 분석할 식사 ID를 받지 못했습니다.");
+      }
+      setAnalysisResult(await fetchAnalysisResult(result.id, accessToken));
+      toast.success("이미지 저장과 GPU 잔반 분석이 완료됐어요.");
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "잔반 분석 중 오류가 발생했습니다.",
@@ -363,7 +440,7 @@ export function MealImageUpload({
                 ))}
               </div>
               <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
-                현재 결과는 화면 확인을 위한 시연 데이터이며, AI 분석 API 연결 후 실제 결과로 교체됩니다.
+                업로드한 식전·식후 사진을 GPU 추론 서버에서 분석한 결과입니다.
               </p>
             </div>
           ) : null}

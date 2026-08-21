@@ -1,4 +1,4 @@
-import { getJson, postJson } from "@/lib/api";
+import { getJson, patchJson, postJson } from "@/lib/api";
 
 export type RecommendationGenerationStatus = "not_started" | "generating" | "done" | "failed";
 export type FacilityMealType = "breakfast" | "lunch" | "dinner";
@@ -40,6 +40,16 @@ export type MonthlyRecommendation = {
   }> | null;
 };
 
+export type DishCatalogItem = {
+  id: string;
+  storeId: string;
+  name: string;
+  category: string;
+  kcal: number | null;
+  sodiumMg: number | null;
+  proteinG: number | null;
+};
+
 export function fetchMonthlyRecommendation(userId: string, month: string) {
   return getJson<MonthlyRecommendation>(
     `/health/users/${userId}/banchan-recommendations/monthly/${month}`,
@@ -50,5 +60,22 @@ export function generateMonthlyRecommendation(userId: string, month: string, for
   return postJson<MonthlyRecommendation>(
     `/health/users/${userId}/banchan-recommendations/monthly`,
     { month, force },
+  );
+}
+
+export function fetchBanchanCatalog() {
+  return getJson<DishCatalogItem[]>("/stores/admin-web/dishes");
+}
+
+export function replaceFacilityRecommendationItem(
+  userId: string,
+  serviceDate: string,
+  mealType: FacilityMealType,
+  slotIndex: number,
+  replacementBanchanId: string,
+) {
+  return patchJson<unknown>(
+    `/health/users/${userId}/banchan-recommendations/${serviceDate}/${mealType}/items/${slotIndex}`,
+    { replacement_banchan_id: replacementBanchanId },
   );
 }

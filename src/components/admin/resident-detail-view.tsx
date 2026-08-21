@@ -17,7 +17,6 @@ import { ResidentMonthlyRecommendation } from "@/components/admin/resident-month
 import {
   updateFacilityWardHealthProfile,
   updateFacilityWardBasicInfo,
-  toResident,
   wardDetailToView,
 } from "@/lib/admin-wards-api";
 import {
@@ -168,7 +167,19 @@ export function ResidentDetailView({
         guardian_phone: String(form.get("guardianPhone") ?? "").trim() || null,
         note: String(form.get("note") ?? "").trim() || null,
       });
-      setResidentView((current) => ({ ...current, ...toResident(updated) }));
+      setResidentView((current) => ({
+        ...current,
+        name: updated.name,
+        birthDate: updated.birth_date,
+        gender: updated.gender === "male" ? "남" : updated.gender === "female" ? "여" : "미상",
+        phone: updated.phone,
+        address: updated.address,
+        dong: updated.address,
+        guardianName: updated.guardian_name ?? "미등록",
+        guardianPhone: updated.guardian_phone ?? "미등록",
+        note: updated.note ?? "",
+        facilityId: updated.care_facility_id ?? undefined,
+      }));
       setBasicEditOpen(false);
       toast.success("대상자 기본정보를 수정했습니다.");
     } catch (error) {
@@ -611,7 +622,6 @@ export function ResidentDetailView({
                 <div className="space-y-2"><Label htmlFor="basic-guardian-phone">보호자 연락처</Label><Input id="basic-guardian-phone" name="guardianPhone" type="tel" defaultValue={residentView.guardianPhone === "미등록" ? "" : residentView.guardianPhone} /></div>
               </div>
               <div className="space-y-2"><Label htmlFor="basic-note">일반 참고사항</Label><Textarea id="basic-note" name="note" defaultValue={residentView.note} /></div>
-              <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">기본정보 저장은 백엔드의 대상자 기본정보 수정 API 지원 후 정상 동작합니다.</p>
               <div className="flex justify-end gap-3 border-t border-border pt-5"><Button type="button" variant="outline" onClick={() => setBasicEditOpen(false)}>취소</Button><Button type="submit" disabled={saving}>{saving ? "저장 중..." : "저장"}</Button></div>
             </form>
           </section>

@@ -73,6 +73,19 @@ export type UpdateWardBasicInfoPayload = Partial<{
   care_facility_id: string;
 }>;
 
+export type WardBasicInfoResponse = {
+  id: string;
+  name: string;
+  birth_date: string;
+  gender: "male" | "female" | null;
+  phone: string;
+  address: string;
+  guardian_name: string | null;
+  guardian_phone: string | null;
+  note: string | null;
+  care_facility_id: string | null;
+};
+
 export function toResident(ward: WardSummary): Resident {
   return {
     id: ward.id,
@@ -132,8 +145,8 @@ export function updateFacilityWardHealthProfile(
 export function updateFacilityWardBasicInfo(
   userId: string,
   payload: UpdateWardBasicInfoPayload,
-): Promise<WardSummary> {
-  return patchJson<WardSummary>(`/gov/facility/wards/${userId}`, payload);
+): Promise<WardBasicInfoResponse> {
+  return patchJson<WardBasicInfoResponse>(`/gov/facility/wards/${userId}`, payload);
 }
 
 export function wardDetailToView(ward: WardDetail, resident: Resident): ResidentDetail {
