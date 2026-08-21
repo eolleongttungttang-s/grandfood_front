@@ -1,7 +1,17 @@
-import { getJson, postJson } from "@/lib/api";
+import { getJson, patchJson, postJson } from "@/lib/api";
 
 export type RecommendationGenerationStatus = "not_started" | "generating" | "done" | "failed";
 export type FacilityMealType = "breakfast" | "lunch" | "dinner";
+export type DailyReviewStatus = "pending" | "confirmed" | "rejected";
+
+export type MealStaple = {
+  name: string;
+  category: string;
+  calorie_per_100g: number | null;
+  protein_per_100g: number | null;
+  sodium_per_100g: number | null;
+  carbs_per_100g: number | null;
+};
 
 export type RecommendationItem = {
   banchan_id: string;
@@ -36,8 +46,33 @@ export type MonthlyRecommendation = {
   }>;
   days: Array<{
     service_date: string;
-    meals: Array<{ meal_type: FacilityMealType; items: RecommendationItem[] }>;
+    review_status: DailyReviewStatus;
+    reviewed_by: string | null;
+    reviewed_at: string | null;
+    meals: Array<{
+      meal_type: FacilityMealType;
+      staple: MealStaple | null;
+      items: RecommendationItem[];
+    }>;
   }> | null;
+};
+
+export type DailyReviewResponse = {
+  user_id: string;
+  service_date: string;
+  status: DailyReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+};
+
+export type DishCatalogItem = {
+  id: string;
+  storeId: string;
+  name: string;
+  category: string;
+  kcal: number | null;
+  sodiumMg: number | null;
+  proteinG: number | null;
 };
 
 export function fetchMonthlyRecommendation(userId: string, month: string) {
@@ -50,5 +85,33 @@ export function generateMonthlyRecommendation(userId: string, month: string, for
   return postJson<MonthlyRecommendation>(
     `/health/users/${userId}/banchan-recommendations/monthly`,
     { month, force },
+  );
+}
+
+export function fetchBanchanCatalog() {
+  return getJson<DishCatalogItem[]>("/stores/admin-web/dishes");
+}
+
+export function replaceFacilityRecommendationItem(
+  userId: string,
+  serviceDate: string,
+  mealType: FacilityMealType,
+  slotIndex: number,
+  replacementBanchanId: string,
+) {
+  return patchJson<unknown>(
+    `/health/users/${userId}/banchan-recommendations/${serviceDate}/${mealType}/items/${slotIndex}`,
+    { replacement_banchan_id: replacementBanchanId },
+  );
+}
+
+export function updateDailyReviewStatus(
+  userId: string,
+  serviceDate: string,
+  status: DailyReviewStatus,
+) {
+  return patchJson<DailyReviewResponse>(
+    `/health/users/${userId}/banchan-recommendations/daily/${serviceDate}/review`,
+    { status },
   );
 }
