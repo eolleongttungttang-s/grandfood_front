@@ -1,11 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { CheckCircle2, ImagePlus, LoaderCircle, Sparkles, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, ImagePlus, LoaderCircle, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react";
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -29,6 +30,27 @@ type DishAnalysis = {
   description: string;
 };
 
+type NutritionGapItem = {
+  nutrient_type: "calorie" | "protein" | "sodium" | "carbs";
+  average_amount: number;
+  average_target_amount: number;
+  fulfillment_pct: number | null;
+  deficient: boolean;
+};
+
+type NutritionGapsResponse = {
+  elder_id: string;
+  period_days: number;
+  items: NutritionGapItem[];
+};
+
+const NUTRIENT_LABELS: Record<NutritionGapItem["nutrient_type"], { label: string; unit: string }> = {
+  calorie: { label: "열량", unit: "kcal" },
+  protein: { label: "단백질", unit: "g" },
+  sodium: { label: "나트륨", unit: "mg" },
+  carbs: { label: "탄수화물", unit: "g" },
+};
+
 type DietHistoryResponse = {
   items?: Array<{
     meal_id: string;
@@ -42,6 +64,13 @@ type DietHistoryResponse = {
 
 const ANALYSIS_POLL_INTERVAL_MS = 4_000;
 const ANALYSIS_POLL_MAX_ATTEMPTS = 8;
+
+function getCurrentMealSlot() {
+  const hour = new Date().getHours();
+  if (hour < 11) return "아침";
+  if (hour < 17) return "점심";
+  return "저녁";
+}
 
 function intakeDescription(percent: number) {
   if (percent >= 90) return "거의 모두 섭취했습니다.";
@@ -229,7 +258,10 @@ export function MealImageUpload({
   const [afterImage, setAfterImage] = useState<MealImage | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<DishAnalysis[] | null>(null);
-  const [mealSlot, setMealSlot] = useState("");
+  const [nutritionSummary, setNutritionSummary] = useState<NutritionGapItem[] | null>(null);
+  const [pendingAnalysisMealId, setPendingAnalysisMealId] = useState<string | null>(null);
+  const [analysisTimedOut, setAnalysisTimedOut] = useState(false);
+  const [mealSlot, setMealSlot] = useState(getCurrentMealSlot);
 
   useEffect(() => {
     const previewUrl = beforeImage?.previewUrl;
@@ -285,7 +317,41 @@ export function MealImageUpload({
         });
       }
     }
-    throw new Error("GPU 분석이 아직 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.");
+    return null;
+  };
+
+  const fetchNutritionSummary = async (accessToken?: string) => {
+    const response = await fetch(
+      `${getApiUrl()}/app/elder/${encodeURIComponent(residentId)}/nutrition-gaps?days=1`,
+      { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined },
+    );
+    if (!response.ok) return null;
+    const result = (await response.json()) as NutritionGapsResponse;
+    return result.items;
+  };
+
+  const checkPendingAnalysis = async () => {
+    if (!pendingAnalysisMealId || isAnalyzing) return;
+    setIsAnalyzing(true);
+    setAnalysisTimedOut(false);
+    try {
+      const result = await fetchAnalysisResult(
+        pendingAnalysisMealId,
+        readAdminSession()?.accessToken,
+      );
+      if (result) {
+        setAnalysisResult(result);
+        setNutritionSummary(await fetchNutritionSummary(readAdminSession()?.accessToken));
+        setPendingAnalysisMealId(null);
+        toast.success("GPU 잔반 분석이 완료됐어요.");
+      } else {
+        setAnalysisTimedOut(true);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "분석 결과를 조회하지 못했습니다.");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const analyzeImages = async () => {
@@ -298,6 +364,9 @@ export function MealImageUpload({
       return;
 
     setAnalysisResult(null);
+    setNutritionSummary(null);
+    setPendingAnalysisMealId(null);
+    setAnalysisTimedOut(false);
     setIsAnalyzing(true);
     try {
       const formData = new FormData();
@@ -329,8 +398,17 @@ export function MealImageUpload({
       if (!result?.id) {
         throw new Error("이미지는 저장됐지만 분석할 식사 ID를 받지 못했습니다.");
       }
-      setAnalysisResult(await fetchAnalysisResult(result.id, accessToken));
-      toast.success("이미지 저장과 GPU 잔반 분석이 완료됐어요.");
+      setPendingAnalysisMealId(result.id);
+      const analysis = await fetchAnalysisResult(result.id, accessToken);
+      if (analysis) {
+        setAnalysisResult(analysis);
+        setNutritionSummary(await fetchNutritionSummary(accessToken));
+        setPendingAnalysisMealId(null);
+        toast.success("이미지 저장과 GPU 잔반 분석이 완료됐어요.");
+      } else {
+        setAnalysisTimedOut(true);
+        toast.success("이미지는 저장됐습니다. GPU 분석 결과는 잠시 후 다시 확인해 주세요.");
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "잔반 분석 중 오류가 발생했습니다.",
@@ -364,7 +442,7 @@ export function MealImageUpload({
 
       <div className="mt-5 rounded-xl border border-border bg-muted/25 p-4">
         <div className="space-y-2">
-          <Label htmlFor="meal-slot">식사 구분</Label>
+          <Label htmlFor="meal-slot">식사 구분 <span className="font-normal text-muted-foreground">(현재 시간 기준 자동 선택)</span></Label>
           <Select value={mealSlot} onValueChange={(value) => setMealSlot(value ?? "")}>
             <SelectTrigger id="meal-slot" className="w-full">
               <SelectValue placeholder="아침·점심·저녁 선택" />
@@ -399,7 +477,7 @@ export function MealImageUpload({
         />
       </div>
 
-      {(isAnalyzing || analysisResult) && (
+      {(isAnalyzing || analysisResult || analysisTimedOut) && (
         <div className="mt-5 overflow-hidden rounded-xl border border-border bg-background">
           {isAnalyzing ? (
             <div className="flex min-h-52 flex-col items-center justify-center gap-4 px-6 py-10 text-center">
@@ -439,9 +517,26 @@ export function MealImageUpload({
                   </div>
                 ))}
               </div>
+              {nutritionSummary && nutritionSummary.length > 0 && (
+                <div className="border-t border-border p-5">
+                  <div><h4 className="font-extrabold text-foreground">오늘 누적 예상 영양 섭취</h4><p className="mt-0.5 text-xs text-muted-foreground">잔반 분석 결과와 반찬별 100g 영양정보를 기준으로 계산한 참고값입니다.</p></div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {nutritionSummary.map((item) => {
+                      const meta = NUTRIENT_LABELS[item.nutrient_type];
+                      const rate = item.fulfillment_pct == null ? null : Math.round(item.fulfillment_pct);
+                      return <div key={item.nutrient_type} className="rounded-lg border border-border p-3"><div className="flex items-center justify-between text-xs"><span className="font-semibold text-muted-foreground">{meta.label}</span><Badge variant={item.deficient ? "destructive" : "secondary"}>{rate == null ? "-" : `${rate}%`}</Badge></div><p className="mt-1 text-base font-extrabold">{Math.round(item.average_amount).toLocaleString()}{meta.unit}<span className="ml-1 text-xs font-medium text-muted-foreground">/ {Math.round(item.average_target_amount).toLocaleString()}{meta.unit}</span></p><Progress className="mt-2" value={Math.min(rate ?? 0, 100)} /></div>;
+                    })}
+                  </div>
+                </div>
+              )}
               <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
                 업로드한 식전·식후 사진을 GPU 추론 서버에서 분석한 결과입니다.
               </p>
+            </div>
+          ) : analysisTimedOut ? (
+            <div className="flex min-h-44 flex-col items-center justify-center gap-3 px-6 py-8 text-center">
+              <div><h3 className="font-extrabold text-foreground">분석에 시간이 걸리고 있어요</h3><p className="mt-1 text-sm text-muted-foreground">이미지는 정상 저장됐습니다. 잠시 후 같은 식사 기록의 결과를 다시 확인해 주세요.</p></div>
+              <Button type="button" variant="outline" onClick={() => void checkPendingAnalysis()} disabled={!pendingAnalysisMealId}><RefreshCw />분석 결과 다시 확인</Button>
             </div>
           ) : null}
         </div>
