@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Beef, ChevronLeft, ChevronRight, Droplet, Flame, LoaderCircle, Printer, RefreshCw, Sparkles, Wheat, X } from "lucide-react";
+import { Beef, CheckCircle2, ChevronLeft, ChevronRight, Droplet, Flame, LoaderCircle, Printer, RefreshCw, Sparkles, Wheat, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,7 @@ function isDateInWeek(date: string, weekStart: string) {
 }
 
 type NutritionTotal = { kcal: number; protein: number; sodium: number; carbs: number };
+type DailyReviewStatus = "pending" | "confirmed" | "rejected";
 
 function nutritionTotal(items: RecommendationItem[]): NutritionTotal {
   return items.reduce((sum, item) => ({
@@ -65,6 +66,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
   const [swapTarget, setSwapTarget] = useState<RecommendationItem | null>(null);
   const [catalog, setCatalog] = useState<DishCatalogItem[]>([]);
   const [replacing, setReplacing] = useState(false);
+  const [dailyReviewStatus, setDailyReviewStatus] = useState<Record<string, DailyReviewStatus>>({});
   const monthKey = getMonthKey(month);
   const days = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
@@ -79,6 +81,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
     ? monthly?.weeks.find((week) => isDateInWeek(selectedDate, week.week_start_date))?.recommendation
     : null;
   const selectedDayItems = selectedDay?.meals.flatMap((meal) => meal.items) ?? [];
+  const selectedReviewStatus = selectedDate ? dailyReviewStatus[selectedDate] ?? "pending" : "pending";
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +126,10 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
   }
 
   async function openSwap(item: RecommendationItem) {
+    if (selectedReviewStatus === "confirmed") {
+      toast.error("검수 완료된 날짜는 반찬을 변경할 수 없습니다.");
+      return;
+    }
     setSwapTarget(item);
     if (catalog.length > 0) return;
     try {
@@ -189,7 +196,8 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
               const key = day ? dateKey(month, day) : null;
               const apiDay = key ? monthly?.days?.find((item) => item.service_date === key) : null;
               const mealCount = apiDay?.meals.filter((meal) => meal.items.length > 0).length ?? 0;
-              return <button key={`${day ?? "empty"}-${index}`} type="button" disabled={!day} onClick={() => { if (key) { setSelectedDate(key); setSelectedMeal("breakfast"); } }} className={`min-h-16 border-t border-r p-1.5 text-left text-xs ${day ? "hover:bg-muted/50" : "bg-muted/20"} ${selectedDate === key ? "bg-primary/10 ring-2 ring-inset ring-primary" : ""}`}>{day && <><span className="font-bold">{day}</span>{mealCount > 0 && <p className="mt-1 truncate text-[10px] text-emerald-700">{mealCount}식 추천</p>}</>}</button>;
+              const reviewStatus = key ? dailyReviewStatus[key] ?? "pending" : "pending";
+              return <button key={`${day ?? "empty"}-${index}`} type="button" disabled={!day} onClick={() => { if (key) { setSelectedDate(key); setSelectedMeal("breakfast"); } }} className={`min-h-16 border-t border-r p-1.5 text-left text-xs ${day ? "hover:bg-muted/50" : "bg-muted/20"} ${selectedDate === key ? "bg-primary/10 ring-2 ring-inset ring-primary" : ""}`}>{day && <><span className="font-bold">{day}</span>{mealCount > 0 && <p className="mt-1 truncate text-[10px] text-emerald-700">{mealCount}식 추천</p>}{mealCount > 0 && <p className={`mt-0.5 truncate text-[10px] font-semibold ${reviewStatus === "confirmed" ? "text-blue-700" : reviewStatus === "rejected" ? "text-red-700" : "text-muted-foreground"}`}>{reviewStatus === "confirmed" ? "검수 완료" : reviewStatus === "rejected" ? "반려" : "검수 대기"}</p>}</>}</button>;
             })}
           </div>
         </div>
@@ -198,6 +206,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
             <div><p className="text-xs font-bold text-sidebar-primary">{selectedDate} 추천</p><div className="mt-2 grid grid-cols-3 gap-1 rounded-lg bg-sidebar-accent p-1">{MEAL_TYPES.map((meal) => <button key={meal.value} type="button" onClick={() => setSelectedMeal(meal.value)} className={`rounded-md px-2 py-1.5 text-xs font-bold ${selectedMeal === meal.value ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground/60"}`}>{meal.label}</button>)}</div>
               <p className="mt-3 text-xs font-bold text-sidebar-foreground/60">{MEAL_TYPES.find((meal) => meal.value === selectedMeal)?.label} 추천 반찬</p><div className="mt-1 flex flex-wrap gap-1.5">{selectedItems.length > 0 ? selectedItems.map((item) => <span key={`${item.banchan_id}-${item.slot_index}`} className="rounded-md bg-sidebar-accent px-2 py-1 text-sm font-extrabold">{item.name}</span>) : <span className="text-sm text-sidebar-foreground/60">아직 배정된 반찬이 없습니다.</span>}</div></div>
             {selectedItems.length > 0 && <><div className="grid grid-cols-4 gap-2 text-xs"><div><p className="text-sidebar-foreground/60">열량</p><p className="font-semibold">{Math.round(total.kcal)}kcal</p></div><div><p className="text-sidebar-foreground/60">단백질</p><p className="font-semibold">{Math.round(total.protein)}g</p></div><div><p className="text-sidebar-foreground/60">나트륨</p><p className="font-semibold">{Math.round(total.sodium)}mg</p></div><div><p className="text-sidebar-foreground/60">탄수화물</p><p className="font-semibold">{Math.round(total.carbs)}g</p></div></div><p className="text-[10px] text-sidebar-foreground/50">반찬별 100g 영양가 합산 기준</p><div className="border-t border-sidebar-border pt-3"><p className="text-xs font-bold">추천 근거</p>{selectedItems.map((item) => <p key={`${item.banchan_id}-reason`} className="mt-1 text-xs leading-5 text-sidebar-foreground/70"><strong>{item.name}</strong> · {item.reason ?? "추천 근거가 없습니다."}</p>)}<p className="mt-2 text-[11px] text-sidebar-foreground/50">질환: {detail.diagnoses.join(", ") || "없음"} · 알레르기: {detail.allergies.join(", ") || "없음"}</p></div></>}
+            {selectedItems.length > 0 && <div className="border-t border-sidebar-border pt-3"><div className="flex items-center justify-between gap-2"><div><p className="text-xs font-bold">영양사 일별 검수</p><p className="mt-0.5 text-[10px] text-sidebar-foreground/50">백엔드 연동 전 화면 상태로 표시됩니다.</p></div><Badge variant="outline">{selectedReviewStatus === "confirmed" ? "검수 완료" : selectedReviewStatus === "rejected" ? "반려" : "검수 대기"}</Badge></div><div className="mt-2 grid grid-cols-2 gap-2"><Button type="button" size="sm" variant="secondary" onClick={() => { if (selectedDate) { setDailyReviewStatus((current) => ({ ...current, [selectedDate]: "confirmed" })); toast.success(`${selectedDate} 식단을 검수 완료로 표시했습니다.`); } }}><CheckCircle2 />검수 완료</Button><Button type="button" size="sm" variant="outline" onClick={() => { if (selectedDate) { setDailyReviewStatus((current) => ({ ...current, [selectedDate]: "rejected" })); toast.success(`${selectedDate} 식단을 반려로 표시했습니다.`); } }}><XCircle />반려</Button></div>{selectedReviewStatus !== "pending" && <Button type="button" size="sm" variant="ghost" className="mt-1 w-full" onClick={() => { if (selectedDate) setDailyReviewStatus((current) => ({ ...current, [selectedDate]: "pending" })); }}>검수 대기로 되돌리기</Button>}</div>}
           </div>}
         </div>
       </div>
@@ -225,7 +234,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
       {selectedDate && selectedTargets && selectedDayItems.length > 0 && (
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <div><p className="text-sm font-extrabold">하루 추천 영양 합계</p><p className="mt-0.5 text-xs text-muted-foreground">아침·점심·저녁에 배정된 반찬의 100g당 영양가를 합산합니다.</p></div>
+            <div><p className="text-sm font-extrabold">하루 추천 영양 합계</p><p className="mt-0.5 text-xs text-muted-foreground">아침·점심·저녁에 배정된 추천 반찬의 100g당 영양가를 합산합니다.</p></div>
             <Badge variant="outline">100g 기준</Badge>
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -245,7 +254,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
         <div className="grid gap-3 md:grid-cols-3">
           {selectedItems.map((item) => (
             <article key={`${item.banchan_id}-nutrition`} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-start justify-between gap-3"><div><h3 className="font-extrabold">{item.name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{item.category}</p></div><div className="flex items-center gap-1"><Badge variant={item.suitability === "recommended" ? "secondary" : "outline"}>{item.suitability === "recommended" ? "추천" : item.suitability === "caution" ? "주의" : "피하기"}</Badge><Button type="button" size="icon-sm" variant="ghost" onClick={() => void openSwap(item)} title="다른 반찬으로 교체"><RefreshCw /><span className="sr-only">{item.name} 교체</span></Button></div></div>
+              <div className="flex items-start justify-between gap-3"><div><h3 className="font-extrabold">{item.name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{item.category}</p></div><div className="flex items-center gap-1"><Badge variant={item.suitability === "recommended" ? "secondary" : "outline"}>{item.suitability === "recommended" ? "추천" : item.suitability === "caution" ? "주의" : "피하기"}</Badge><Button type="button" size="icon-sm" variant="ghost" disabled={selectedReviewStatus === "confirmed"} onClick={() => void openSwap(item)} title={selectedReviewStatus === "confirmed" ? "검수 완료된 식단입니다" : "다른 반찬으로 교체"}><RefreshCw /><span className="sr-only">{item.name} 교체</span></Button></div></div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <span className="rounded-md bg-muted px-2 py-1.5">열량 <strong>{item.calorie_per_100g ?? "-"}{item.calorie_per_100g == null ? "" : "kcal/100g"}</strong></span>
                 <span className="rounded-md bg-muted px-2 py-1.5">단백질 <strong>{item.protein_per_100g ?? "-"}{item.protein_per_100g == null ? "" : "g"}</strong></span>

@@ -119,10 +119,12 @@ export function DatabaseStatisticsDashboard() {
     async function load() {
       try {
         const session = readAdminSession();
-        const [facilityRows, wardRows] = await Promise.all([
-          getJson<FacilityApiResponse[]>("/api/admin/facilities"),
-          getJson<WardSummary[]>("/gov/facility/wards"),
-        ]);
+        const facilityRows = await getJson<FacilityApiResponse[]>(
+          "/api/admin/facilities",
+        );
+        const wardRows = await getJson<WardSummary[]>("/gov/facility/wards").catch(
+          () => [] as WardSummary[],
+        );
         if (!cancelled) {
           setScopeLabel(dashboardScopeLabel(session));
           setFacilities(
