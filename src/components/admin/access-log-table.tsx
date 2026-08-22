@@ -105,8 +105,11 @@ export function AccessLogTable({ action }: { action: AccessLogAction }) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
 
+    // loading은 useState(true)로 이미 켜진 채 시작한다 — 이 컴포넌트는 라우트가
+    // 바뀌면(로그인 기록 ↔ 열람기록) 페이지 자체가 다시 마운트되므로 action이 바뀌며
+    // effect가 재실행되는 경우가 없다. 여기서 다시 setLoading(true)를 부르면
+    // react-hooks/set-state-in-effect(연쇄 렌더 경고)에 걸리기만 하고 얻는 게 없다.
     fetchAccessLogs(action)
       .then((rows) => {
         if (!cancelled) setLogs(rows);
