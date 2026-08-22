@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LogOut,
   MapPinned,
+  ScrollText,
   UsersRound,
 } from "lucide-react";
 
@@ -75,13 +76,16 @@ export function AppSidebar() {
         <Link
           href={homePath}
           aria-label="관리자 홈으로 이동"
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          className="flex items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 transition-colors group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
           <GrandFoodMark className="h-6 w-6 shrink-0 rounded-md" />
-          <span className="text-sm font-extrabold text-sidebar-foreground">
+          {/* 사이드바를 접으면(collapsible=icon) 글자를 숨겨 로고만 남긴다 — 안 숨기면
+              글자가 좁아진 폭을 밀고 나가 접기/펴기 토글 버튼을 가려서 다시 펼치기가
+              어려워진다. 이 셀렉터는 sidebar.tsx가 SidebarMenuSub 등에서 쓰는 것과 같다. */}
+          <span className="text-sm font-extrabold whitespace-nowrap text-sidebar-foreground group-data-[collapsible=icon]:hidden">
             GrandFood
           </span>
-          <span className="text-[10px] font-extrabold tracking-[0.1em] text-sidebar-primary">
+          <span className="text-[10px] font-extrabold tracking-[0.1em] whitespace-nowrap text-sidebar-primary group-data-[collapsible=icon]:hidden">
             {isSuperAdmin ? "SUPER ADMIN" : "GOV ADMIN"}
           </span>
         </Link>
@@ -205,14 +209,47 @@ export function AppSidebar() {
               )}
             </SidebarMenuItem>
           )}
+          {isSuperAdmin && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/admin/access-logs")}
+                tooltip="기록"
+                render={<Link href="/admin/access-logs/logins" />}
+              >
+                <ScrollText />
+                <span>기록</span>
+              </SidebarMenuButton>
+              {pathname.startsWith("/admin/access-logs") && (
+                <SidebarMenuSub>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      isActive={pathname === "/admin/access-logs/logins"}
+                      render={<Link href="/admin/access-logs/logins" />}
+                    >
+                      <span>로그인 기록</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      isActive={pathname === "/admin/access-logs/views"}
+                      render={<Link href="/admin/access-logs/views" />}
+                    >
+                      <span>개인정보 열람기록</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                </SidebarMenuSub>
+              )}
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
-            <div className="flex items-center gap-2.5 px-2 py-1.5">
+            <div className="flex items-center gap-2.5 overflow-hidden px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
               <Avatar className="h-8 w-8 shrink-0">
                 <AvatarFallback className="bg-sidebar-accent text-sidebar-foreground text-xs font-bold">
                   {(session?.account ?? "관리자").slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex min-w-0 flex-col">
+              {/* 헤더 로고와 같은 이유로, 접었을 때는 아바타만 남기고 계정 정보를 숨긴다. */}
+              <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
                 <span className="truncate text-sm font-semibold text-sidebar-foreground">
                   {session?.account ?? "관리자"}
                 </span>
