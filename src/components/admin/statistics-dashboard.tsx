@@ -42,6 +42,10 @@ export function StatisticsDashboard({
   facilityDetailBasePath?: string | null;
 }) {
   const router = useRouter();
+  const facilityDetailHref = (facilityId: string) =>
+    facilityDetailBasePath?.endsWith("=")
+      ? `${facilityDetailBasePath}${encodeURIComponent(facilityId)}`
+      : `${facilityDetailBasePath}/${facilityId}`;
   const [region, setRegion] = useState("전체");
   const [municipality, setMunicipality] = useState("전체");
   const [facilityType, setFacilityType] = useState("전체");
@@ -312,7 +316,7 @@ export function StatisticsDashboard({
                   data-state={selectedFacility?.id === facility.id ? "selected" : undefined}
                   className={facilityDetailBasePath ? "cursor-pointer" : undefined}
                   onClick={() => {
-                    if (facilityDetailBasePath) router.push(`${facilityDetailBasePath}/${facility.id}`);
+                    if (facilityDetailBasePath) router.push(facilityDetailHref(facility.id));
                   }}
                 >
                   <TableCell><p className="font-semibold">{facility.municipality}</p><p className="text-xs text-muted-foreground">{facility.region}</p></TableCell>
@@ -322,7 +326,7 @@ export function StatisticsDashboard({
                       className="font-bold underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (facilityDetailBasePath) router.push(`${facilityDetailBasePath}/${facility.id}`);
+                        if (facilityDetailBasePath) router.push(facilityDetailHref(facility.id));
                       }}
                     >
                       {facility.name}

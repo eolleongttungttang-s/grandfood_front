@@ -149,7 +149,7 @@ export function DatabaseStatisticsDashboard() {
     };
   }, []);
 
-  if (facilities) return <StatisticsDashboard facilities={facilities} scopeLabel={scopeLabel} facilityDetailBasePath={null} />;
+  if (facilities) return <StatisticsDashboard facilities={facilities} scopeLabel={scopeLabel} facilityDetailBasePath="/admin/statistics-empty/facility?id=" />;
 
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
