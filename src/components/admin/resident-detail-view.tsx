@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MealImageUpload } from "@/components/admin/meal-image-upload";
+import { ResidentIntakeHistory } from "@/components/admin/resident-intake-history";
 import { ResidentMonthlyRecommendation } from "@/components/admin/resident-monthly-recommendation";
 import {
   updateFacilityWardHealthProfile,
@@ -25,12 +26,6 @@ import {
   makeFoodRules,
   type ActivityLevel,
 } from "@/lib/admin-ward-registration";
-
-const MEAL_TONE_CLASS: Record<string, string> = {
-  완식: "bg-foreground",
-  소량: "bg-risk-caution-foreground",
-  미응답: "bg-risk-high-foreground",
-};
 
 const RISK_BADGE_CLASS: Record<Resident["risk"], string> = {
   고위험: "bg-risk-high text-risk-high-foreground",
@@ -189,10 +184,6 @@ export function ResidentDetailView({
     }
   }
 
-  const completeCount = detail.mealHistory.filter((m) => m === "완식").length;
-  const smallCount = detail.mealHistory.filter((m) => m === "소량").length;
-  const noResponseCount = detail.mealHistory.filter((m) => m === "미응답").length;
-
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
       <div className="flex items-center justify-between rounded-xl bg-sidebar px-5 py-3 text-sidebar-foreground shadow-sm">
@@ -256,12 +247,33 @@ export function ResidentDetailView({
         </div>
       </div>
 
-      <MealImageUpload
-        residentId={resident.id}
-        residentName={residentView.name}
-      />
+      <nav className="sticky top-3 z-30 overflow-x-auto rounded-xl border border-border bg-card/95 p-2 shadow-sm backdrop-blur" aria-label="대상자 상세 빠른 이동">
+        <div className="flex min-w-max gap-1.5">
+          {[
+            ["meal-analysis", "이미지 분석"],
+            ["health-profile", "건강정보"],
+            ["meal-recommendation", "식단 추천"],
+            ["intake-history", "섭취 기록"],
+          ].map(([target, label]) => (
+            <a
+              key={target}
+              href={`#${target}`}
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {label}
+            </a>
+          ))}
+        </div>
+      </nav>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div id="meal-analysis" className="scroll-mt-24">
+        <MealImageUpload
+          residentId={resident.id}
+          residentName={residentView.name}
+        />
+      </div>
+
+      <div id="health-profile" className="grid scroll-mt-24 gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-foreground">추천 건강 프로필</h2>
@@ -359,28 +371,13 @@ export function ResidentDetailView({
           </div>
         </div>
 
-        <ResidentMonthlyRecommendation resident={residentView} detail={detail} />
+        <div id="meal-recommendation" className="scroll-mt-24 lg:col-span-3">
+          <ResidentMonthlyRecommendation resident={residentView} detail={detail} />
+        </div>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-sm font-bold text-foreground">최근 14일 섭취 기록</h2>
-          <span className="text-xs text-muted-foreground">
-            완식 <span className="font-semibold text-foreground">{completeCount}</span> · 소량{" "}
-            <span className="font-semibold text-risk-caution-foreground">{smallCount}</span> ·
-            미응답{" "}
-            <span className="font-semibold text-risk-high-foreground">{noResponseCount}</span>
-          </span>
-        </div>
-        <div className="grid grid-cols-[repeat(14,minmax(0,1fr))] gap-1.5">
-          {detail.mealHistory.map((tone, i) => (
-            <div
-              key={i}
-              className={`h-10 rounded-sm ${MEAL_TONE_CLASS[tone]}`}
-              title={tone}
-            />
-          ))}
-        </div>
+      <div id="intake-history" className="scroll-mt-24">
+        <ResidentIntakeHistory residentId={resident.id} />
       </div>
 
       {editOpen && (
