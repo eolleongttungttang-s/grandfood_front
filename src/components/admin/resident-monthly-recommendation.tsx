@@ -72,7 +72,12 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
   const days = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
     const last = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-    return [...Array.from({ length: first }, () => null), ...Array.from({ length: last }, (_, index) => index + 1)];
+    const calendarDays = [
+      ...Array.from({ length: first }, () => null),
+      ...Array.from({ length: last }, (_, index) => index + 1),
+    ];
+    const trailingEmptyCount = (7 - (calendarDays.length % 7)) % 7;
+    return [...calendarDays, ...Array.from({ length: trailingEmptyCount }, () => null)];
   }, [month]);
   const printableWeeks = useMemo(() => {
     const recommendationDays = monthly?.days ?? [];
@@ -223,7 +228,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
               const apiDay = key ? monthly?.days?.find((item) => item.service_date === key) : null;
               const mealCount = apiDay?.meals.filter((meal) => meal.items.length > 0).length ?? 0;
               const reviewStatus = apiDay?.review_status ?? "pending";
-              return <button key={`${day ?? "empty"}-${index}`} type="button" disabled={!day} onClick={() => { if (key) { setSelectedDate(key); setSelectedMeal("breakfast"); } }} className={`min-h-16 border-t border-r p-1.5 text-left text-xs ${day ? "hover:bg-muted/50" : "bg-muted/20"} ${selectedDate === key ? "bg-primary/10 ring-2 ring-inset ring-primary" : ""}`}>{day && <><span className="font-bold">{day}</span>{mealCount > 0 && <p className="mt-1 truncate text-[10px] text-emerald-700">{mealCount}식 추천</p>}{mealCount > 0 && <p className={`mt-0.5 truncate text-[10px] font-semibold ${reviewStatus === "confirmed" ? "text-blue-700" : reviewStatus === "rejected" ? "text-amber-700" : "text-muted-foreground"}`}>{reviewStatus === "confirmed" ? "검수 완료" : reviewStatus === "rejected" ? "수정 필요" : "검수 대기"}</p>}</>}</button>;
+              return <button key={`${day ?? "empty"}-${index}`} type="button" disabled={!day} onClick={() => { if (key) { setSelectedDate(key); setSelectedMeal("breakfast"); } }} className={`min-h-16 border-b border-r p-1.5 text-left text-xs ${day ? "hover:bg-muted/50" : "bg-muted/20"} ${selectedDate === key ? "bg-primary/10 ring-2 ring-inset ring-primary" : ""}`}>{day && <><span className="font-bold">{day}</span>{mealCount > 0 && <p className="mt-1 truncate text-[10px] text-emerald-700">{mealCount}식 추천</p>}{mealCount > 0 && <p className={`mt-0.5 truncate text-[10px] font-semibold ${reviewStatus === "confirmed" ? "text-blue-700" : reviewStatus === "rejected" ? "text-amber-700" : "text-muted-foreground"}`}>{reviewStatus === "confirmed" ? "검수 완료" : reviewStatus === "rejected" ? "수정 필요" : "검수 대기"}</p>}</>}</button>;
             })}
           </div>
         </div>
