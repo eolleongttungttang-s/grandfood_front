@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { type AccessLevel, readAdminSession } from "@/lib/admin-auth";
 import { getJson, patchJson, postJson } from "@/lib/api";
+import { SERVICE_REGIONS } from "@/lib/admin-region";
 import {
   Table,
   TableBody,
@@ -76,6 +77,7 @@ type FacilityApiResponse = {
   contract_start_date: string | null;
   contract_end_date: string | null;
   facility_code: string;
+  region_code: string | null;
   created_at: string;
 };
 
@@ -289,10 +291,11 @@ export function SuperAdminDashboard() {
     const form = new FormData(formElement);
     const name = String(form.get("facilityName") ?? "").trim();
     const department = String(form.get("department") ?? "").trim();
+    const regionCode = String(form.get("regionCode") ?? "").trim();
     const contractStartDate = String(form.get("contractStart") ?? "");
     const contractEndDate = String(form.get("contractEnd") ?? "");
 
-    if (!name) return;
+    if (!name || !regionCode) return;
     if (facilities.some((item) => item.facilityName === name)) {
       toast.error("이미 등록된 지자체입니다.");
       return;
@@ -317,6 +320,7 @@ export function SuperAdminDashboard() {
         contract_start_date: contractStartDate,
         contract_end_date: contractEndDate,
         facility_code: facilityCode,
+        region_code: regionCode,
       });
       saveFacilities([
         ...facilities,
@@ -487,6 +491,20 @@ export function SuperAdminDashboard() {
                 <div className="space-y-2">
                   <Label htmlFor="facilityName">지자체명</Label>
                   <Input id="facilityName" name="facilityName" placeholder="예: 마포구청" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="regionCode">소속 지역</Label>
+                  <select
+                    id="regionCode"
+                    name="regionCode"
+                    defaultValue="11"
+                    required
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {SERVICE_REGIONS.map((region) => (
+                      <option key={region.code} value={region.code}>{region.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="department">담당 부서</Label>

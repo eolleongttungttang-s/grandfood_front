@@ -1,3 +1,27 @@
+export const KOREA_REGIONS = [
+  { code: "11", name: "서울특별시" },
+  { code: "26", name: "부산광역시" },
+  { code: "27", name: "대구광역시" },
+  { code: "28", name: "인천광역시" },
+  { code: "29", name: "광주광역시" },
+  { code: "30", name: "대전광역시" },
+  { code: "31", name: "울산광역시" },
+  { code: "36", name: "세종특별자치시" },
+  { code: "41", name: "경기도" },
+  { code: "51", name: "강원특별자치도" },
+  { code: "43", name: "충청북도" },
+  { code: "44", name: "충청남도" },
+  { code: "52", name: "전북특별자치도" },
+  { code: "46", name: "전라남도" },
+  { code: "47", name: "경상북도" },
+  { code: "48", name: "경상남도" },
+  { code: "50", name: "제주특별자치도" },
+] as const;
+
+// 현재 정부기관 웹의 운영 범위는 서울특별시로 제한한다. 백엔드의 전국 코드
+// 지원과 기존 데이터 해석은 유지하고, 신규 등록·지역 공지 선택지만 서울로 제한한다.
+export const SERVICE_REGIONS = KOREA_REGIONS.filter((region) => region.code === "11");
+
 const SIDO_ALIASES: Array<[string, string[]]> = [
   ["서울특별시", ["서울특별시", "서울"]], ["부산광역시", ["부산광역시", "부산"]],
   ["대구광역시", ["대구광역시", "대구"]], ["인천광역시", ["인천광역시", "인천"]],

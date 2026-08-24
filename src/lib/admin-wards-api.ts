@@ -24,7 +24,7 @@ export type WardSummary = {
   note?: string | null;
   case_worker_name: string | null;
   case_worker_role: string | null;
-  created_at?: string | null;
+  created_at: string;
 };
 
 export type WardFoodRule = {

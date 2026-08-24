@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/preserve-manual-memoization -- derived intake maps are intentionally cached by source state */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, LoaderCircle, Printer } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,11 @@ import {
 } from "@/lib/admin-monthly-recommendation-api";
 import { DEMO_RESIDENT_ID } from "@/lib/admin-residents";
 import { recommendationForDate } from "@/lib/admin-recommendation-date";
+import {
+  fetchDailyNutritionActuals,
+  nutrientActual,
+  type DailyNutritionActuals,
+} from "@/lib/admin-intake-api";
 
 type DietDish = {
   banchan_id: string;
@@ -235,7 +240,25 @@ export function ResidentIntakeHistory({
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<DishCatalogItem[]>([]);
   const [recommendationsByMonth, setRecommendationsByMonth] = useState<Record<string, MonthlyRecommendation>>({});
+  const [nutritionActualsByDate, setNutritionActualsByDate] = useState<Record<string, DailyNutritionActuals>>({});
+  const nutritionActualsCache = useRef<Record<string, DailyNutritionActuals>>({});
   const [activeTab, setActiveTab] = useState<"summary" | "history" | "nutrition">("history");
+  const [historyRevision, setHistoryRevision] = useState(0);
+
+  useEffect(() => {
+    const handleMealUpdate = (event: Event) => {
+      const updatedResidentId = (event as CustomEvent<{ residentId?: string }>).detail?.residentId;
+      if (updatedResidentId === residentId) {
+        for (const key of Object.keys(nutritionActualsCache.current)) {
+          if (key.startsWith(`${residentId}:`)) delete nutritionActualsCache.current[key];
+        }
+        setNutritionActualsByDate({});
+        setHistoryRevision((current) => current + 1);
+      }
+    };
+    window.addEventListener("grandfood:meal-log-updated", handleMealUpdate);
+    return () => window.removeEventListener("grandfood:meal-log-updated", handleMealUpdate);
+  }, [residentId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -301,7 +324,7 @@ export function ResidentIntakeHistory({
     };
     void load();
     return () => controller.abort();
-  }, [residentId, startDate]);
+  }, [residentId, startDate, historyRevision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -337,6 +360,41 @@ export function ResidentIntakeHistory({
     };
   }, [residentId, recommendationMonths]);
 
+  const nutritionDates = useMemo(() => [...new Set([
+    selectedDate,
+    ...currentWeekDateKeys(),
+  ])], [selectedDate]);
+
+  useEffect(() => {
+    if (residentId === DEMO_RESIDENT_ID) return;
+    let cancelled = false;
+    const missingDates = nutritionDates.filter(
+      (date) => !nutritionActualsCache.current[`${residentId}:${date}`],
+    );
+    if (missingDates.length === 0) {
+      setNutritionActualsByDate(Object.fromEntries(nutritionDates.flatMap((date) => {
+        const item = nutritionActualsCache.current[`${residentId}:${date}`];
+        return item ? [[date, item]] : [];
+      })));
+      return;
+    }
+    void Promise.all(missingDates.map((date) =>
+      fetchDailyNutritionActuals(residentId, date).catch(() => null),
+    )).then((results) => {
+      if (cancelled) return;
+      results.forEach((result, index) => {
+        if (result) nutritionActualsCache.current[`${residentId}:${missingDates[index]}`] = result;
+      });
+      setNutritionActualsByDate(Object.fromEntries(nutritionDates.flatMap((date) => {
+        const item = nutritionActualsCache.current[`${residentId}:${date}`];
+        return item ? [[date, item]] : [];
+      })));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [residentId, nutritionDates, historyRevision]);
+
   function selectRecentPeriod(days: number) {
     const periodDates = recentDateKeys(days);
     setStartDate(periodDates[0]);
@@ -349,27 +407,46 @@ export function ResidentIntakeHistory({
     if (!reportWindow) return;
     reportWindow.document.write("<p style='font-family:sans-serif;padding:30px'>섭취 분석 리포트를 준비하고 있습니다.</p>");
     const reportEntries = dates.flatMap((date) => entriesByDate[date] ?? []);
-    const reportNutrition = calculateNutrition(reportEntries, catalogById);
+    const reportActuals = residentId === DEMO_RESIDENT_ID
+      ? []
+      : await Promise.all(dates.map((date) =>
+          fetchDailyNutritionActuals(residentId, date).catch(() => null),
+        ));
+    const reportNutrition = residentId === DEMO_RESIDENT_ID
+      ? calculateNutrition(reportEntries, catalogById)
+      : reportActuals.reduce((total, actuals) => ({
+          calorie: total.calorie + (nutrientActual(actuals, "calorie")?.amount ?? 0),
+          protein: total.protein + (nutrientActual(actuals, "protein")?.amount ?? 0),
+          sodium: total.sodium + (nutrientActual(actuals, "sodium")?.amount ?? 0),
+        }), { calorie: 0, protein: 0, sodium: 0 });
     const reportMonths = await Promise.all(
       [...new Set(dates.map((date) => date.slice(0, 7)))].map((month) =>
         fetchMonthlyRecommendation(residentId, month).catch(() => null),
       ),
     );
-    const reportTargets = dates.reduce(
-      (total, date) => {
-        const target = recommendationForDate(
-          reportMonths.find((item) => item?.month === date.slice(0, 7)) ?? null,
-          date,
-        );
-        return {
-          calorie: total.calorie + (target?.target_calorie_kcal ?? 0),
-          protein: total.protein + (target?.target_protein_g ?? 0),
-          sodium: total.sodium + (target?.target_sodium_mg ?? 0),
-          availableDays: total.availableDays + Number(Boolean(target)),
-        };
-      },
-      { calorie: 0, protein: 0, sodium: 0, availableDays: 0 },
-    );
+    const reportTargets = dates.reduce((total, date, index) => {
+      const recommendationTarget = recommendationForDate(
+        reportMonths.find((item) => item?.month === date.slice(0, 7)) ?? null,
+        date,
+      );
+      const actuals = reportActuals[index];
+      const calorieTarget = residentId === DEMO_RESIDENT_ID
+        ? recommendationTarget?.target_calorie_kcal
+        : nutrientActual(actuals, "calorie")?.target_amount ?? recommendationTarget?.target_calorie_kcal;
+      const proteinTarget = residentId === DEMO_RESIDENT_ID
+        ? recommendationTarget?.target_protein_g
+        : nutrientActual(actuals, "protein")?.target_amount ?? recommendationTarget?.target_protein_g;
+      const sodiumTarget = residentId === DEMO_RESIDENT_ID
+        ? recommendationTarget?.target_sodium_mg
+        : nutrientActual(actuals, "sodium")?.target_amount ?? recommendationTarget?.target_sodium_mg;
+      const hasTargets = [calorieTarget, proteinTarget, sodiumTarget].every((target) => target != null);
+      return {
+        calorie: total.calorie + (calorieTarget ?? 0),
+        protein: total.protein + (proteinTarget ?? 0),
+        sodium: total.sodium + (sodiumTarget ?? 0),
+        availableDays: total.availableDays + Number(hasTargets),
+      };
+    }, { calorie: 0, protein: 0, sodium: 0, availableDays: 0 });
     const metricValue = (value: number, target: number, unit: string) => {
       const hasTarget = reportTargets.availableDays === dates.length && target > 0;
       const rate = hasTarget ? Math.round((value / target) * 100) : null;
@@ -393,7 +470,7 @@ export function ResidentIntakeHistory({
       return `<tr><th>${escapeHtml(date)}</th>${cells.map((cell) => `<td>${cell}</td>`).join("")}<td>${rate == null ? "—" : `${rate}%`}</td></tr>`;
     }).join("");
     reportWindow.document.open();
-    reportWindow.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(residentName)} 섭취 분석 리포트</title><style>body{font-family:Arial,'Noto Sans KR',sans-serif;color:#211812;padding:30px}h1{text-align:center;margin:0 0 6px}.meta{text-align:center;color:#6b625d;margin-bottom:24px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}.card{border:1px solid #d8cec7;border-radius:10px;padding:12px}.label{font-size:12px;color:#776d67}.value{font-size:16px;font-weight:800;margin-top:5px;white-space:nowrap}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #bfb5ae;padding:9px;vertical-align:top}thead th{background:#f3ece7}tbody th{white-space:nowrap;background:#faf7f4}.note{margin-top:16px;color:#776d67;font-size:10px}@media print{body{padding:0}}</style></head><body><h1>${escapeHtml(residentName)} 섭취 분석 리포트</h1><p class="meta">${escapeHtml(startDate)} ~ ${escapeHtml(endDate)}</p><div class="summary"><div class="card"><div class="label">평균 섭취율</div><div class="value">${averageRate == null ? "—" : `${averageRate}%`}</div></div><div class="card"><div class="label">추정 열량 / 기간 목표</div><div class="value">${metricValue(reportNutrition.calorie, reportTargets.calorie, "kcal")}</div></div><div class="card"><div class="label">추정 단백질 / 기간 목표</div><div class="value">${metricValue(reportNutrition.protein, reportTargets.protein, "g")}</div></div><div class="card"><div class="label">추정 나트륨 / 기간 목표</div><div class="value">${metricValue(reportNutrition.sodium, reportTargets.sodium, "mg")}</div></div></div><table><thead><tr><th>날짜</th><th>아침</th><th>점심</th><th>저녁</th><th>일일 섭취율</th></tr></thead><tbody>${rows}</tbody></table><p class="note">영양 섭취량은 반찬 100g 영양정보와 잔반 판독 비율을 적용한 참고용 추정치입니다. 목표 총량은 선택 기간에 포함된 각 날짜의 하루 목표를 합산했습니다.</p><script>window.onload=()=>window.print();<\/script></body></html>`);
+    reportWindow.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(residentName)} 섭취 분석 리포트</title><style>body{font-family:Arial,'Noto Sans KR',sans-serif;color:#211812;padding:30px}h1{text-align:center;margin:0 0 6px}.meta{text-align:center;color:#6b625d;margin-bottom:24px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}.card{border:1px solid #d8cec7;border-radius:10px;padding:12px}.label{font-size:12px;color:#776d67}.value{font-size:16px;font-weight:800;margin-top:5px;white-space:nowrap}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #bfb5ae;padding:9px;vertical-align:top}thead th{background:#f3ece7}tbody th{white-space:nowrap;background:#faf7f4}.note{margin-top:16px;color:#776d67;font-size:10px}@media print{body{padding:0}}</style></head><body><h1>${escapeHtml(residentName)} 섭취 분석 리포트</h1><p class="meta">${escapeHtml(startDate)} ~ ${escapeHtml(endDate)}</p><div class="summary"><div class="card"><div class="label">평균 섭취율</div><div class="value">${averageRate == null ? "—" : `${averageRate}%`}</div></div><div class="card"><div class="label">섭취 열량 / 기간 목표</div><div class="value">${metricValue(reportNutrition.calorie, reportTargets.calorie, "kcal")}</div></div><div class="card"><div class="label">섭취 단백질 / 기간 목표</div><div class="value">${metricValue(reportNutrition.protein, reportTargets.protein, "g")}</div></div><div class="card"><div class="label">섭취 나트륨 / 기간 목표</div><div class="value">${metricValue(reportNutrition.sodium, reportTargets.sodium, "mg")}</div></div></div><table><thead><tr><th>날짜</th><th>아침</th><th>점심</th><th>저녁</th><th>일일 섭취율</th></tr></thead><tbody>${rows}</tbody></table><p class="note">실제 대상자의 영양 섭취량은 서버에 저장된 날짜별 최신 분석 집계를 사용합니다. 목표 총량은 선택 기간의 하루 목표를 합산했습니다.</p><script>window.onload=()=>window.print();<\/script></body></html>`);
     reportWindow.document.close();
   }
 
@@ -418,7 +495,7 @@ export function ResidentIntakeHistory({
     () => Object.fromEntries(catalog.map((dish) => [dish.id, dish])),
     [catalog],
   );
-  const actualNutrition = useMemo(
+  const estimatedNutrition = useMemo(
     () => calculateNutrition(selectedEntries, catalogById),
     [selectedEntries, catalogById],
   );
@@ -426,12 +503,29 @@ export function ResidentIntakeHistory({
     () => recentSeven.flatMap((date) => entriesByDate[date] ?? []),
     [recentSeven, entriesByDate],
   );
-  const recentSevenNutrition = useMemo(
+  const estimatedRecentSevenNutrition = useMemo(
     () => calculateNutrition(recentSevenEntries, catalogById),
     [recentSevenEntries, catalogById],
   );
-  const hasRecentNutrition = recentSevenEntries.some((entry) => entry.dishes.length > 0);
-  const recentTargets = useMemo(() => recentSeven.reduce(
+  const selectedActuals = nutritionActualsByDate[selectedDate];
+  const actualNutrition = residentId === DEMO_RESIDENT_ID
+    ? estimatedNutrition
+    : {
+        calorie: nutrientActual(selectedActuals, "calorie")?.amount ?? 0,
+        protein: nutrientActual(selectedActuals, "protein")?.amount ?? 0,
+        sodium: nutrientActual(selectedActuals, "sodium")?.amount ?? 0,
+      };
+  const recentSevenNutrition = residentId === DEMO_RESIDENT_ID
+    ? estimatedRecentSevenNutrition
+    : recentSeven.reduce((total, date) => ({
+        calorie: total.calorie + (nutrientActual(nutritionActualsByDate[date], "calorie")?.amount ?? 0),
+        protein: total.protein + (nutrientActual(nutritionActualsByDate[date], "protein")?.amount ?? 0),
+        sodium: total.sodium + (nutrientActual(nutritionActualsByDate[date], "sodium")?.amount ?? 0),
+      }), { calorie: 0, protein: 0, sodium: 0 });
+  const hasRecentNutrition = residentId === DEMO_RESIDENT_ID
+    ? recentSevenEntries.some((entry) => entry.dishes.length > 0)
+    : recentSeven.some((date) => (nutritionActualsByDate[date]?.nutrients.length ?? 0) > 0);
+  const recommendationRecentTargets = useMemo(() => recentSeven.reduce(
     (total, date) => {
       const target = recommendationForDate(
         recommendationsByMonth[date.slice(0, 7)] ?? null,
@@ -446,11 +540,48 @@ export function ResidentIntakeHistory({
     },
     { calorie: 0, protein: 0, sodium: 0, availableDays: 0 },
   ), [recentSeven, recommendationsByMonth]);
-  const targets = recommendationForDate(
+  const recentTargets = residentId === DEMO_RESIDENT_ID
+    ? recommendationRecentTargets
+    : recentSeven.reduce((total, date) => {
+        const actuals = nutritionActualsByDate[date];
+        const calorie = nutrientActual(actuals, "calorie");
+        const protein = nutrientActual(actuals, "protein");
+        const sodium = nutrientActual(actuals, "sodium");
+        const recommendation = recommendationForDate(
+          recommendationsByMonth[date.slice(0, 7)] ?? null,
+          date,
+        );
+        const calorieTarget = calorie?.target_amount ?? recommendation?.target_calorie_kcal;
+        const proteinTarget = protein?.target_amount ?? recommendation?.target_protein_g;
+        const sodiumTarget = sodium?.target_amount ?? recommendation?.target_sodium_mg;
+        const hasTargets = [calorieTarget, proteinTarget, sodiumTarget].every((target) => target != null);
+        return {
+          calorie: total.calorie + (calorieTarget ?? 0),
+          protein: total.protein + (proteinTarget ?? 0),
+          sodium: total.sodium + (sodiumTarget ?? 0),
+          availableDays: total.availableDays + Number(hasTargets),
+        };
+      }, { calorie: 0, protein: 0, sodium: 0, availableDays: 0 });
+  const recommendationTargets = recommendationForDate(
     recommendationsByMonth[selectedDate.slice(0, 7)] ?? null,
     selectedDate,
   );
-  const hasAnalyzedDishes = selectedEntries.some((entry) => entry.dishes.length > 0);
+  const targets = residentId === DEMO_RESIDENT_ID
+    ? recommendationTargets
+    : {
+        target_calorie_kcal: nutrientActual(selectedActuals, "calorie")?.target_amount
+          ?? recommendationTargets?.target_calorie_kcal
+          ?? null,
+        target_protein_g: nutrientActual(selectedActuals, "protein")?.target_amount
+          ?? recommendationTargets?.target_protein_g
+          ?? null,
+        target_sodium_mg: nutrientActual(selectedActuals, "sodium")?.target_amount
+          ?? recommendationTargets?.target_sodium_mg
+          ?? null,
+      };
+  const hasAnalyzedDishes = residentId === DEMO_RESIDENT_ID
+    ? selectedEntries.some((entry) => entry.dishes.length > 0)
+    : (selectedActuals?.nutrients.length ?? 0) > 0;
 
   if (loading) {
     return <div className="flex min-h-48 items-center justify-center rounded-xl border bg-card"><LoaderCircle className="h-5 w-5 animate-spin" /></div>;

@@ -466,11 +466,17 @@ export function MealImageUpload({
         throw new Error("이미지는 저장됐지만 분석할 식사 ID를 받지 못했습니다.");
       }
       setPendingAnalysisMealId(result.id);
+      window.dispatchEvent(new CustomEvent("grandfood:meal-log-updated", {
+        detail: { residentId },
+      }));
       const analysis = await fetchAnalysisResult(result.id, accessToken);
       if (analysis) {
         setAnalysisResult(analysis);
         setNutritionSummary(await fetchNutritionSummary(accessToken));
         setPendingAnalysisMealId(null);
+        window.dispatchEvent(new CustomEvent("grandfood:meal-log-updated", {
+          detail: { residentId },
+        }));
         toast.success("이미지 저장과 GPU 잔반 분석이 완료됐어요.");
       } else {
         setAnalysisTimedOut(true);
