@@ -21,6 +21,7 @@ import {
 } from "@/lib/admin-monthly-recommendation-api";
 import type { ResidentDetail } from "@/lib/admin-resident-detail";
 import type { Resident } from "@/lib/admin-residents";
+import { DEMO_RESIDENT_ID } from "@/lib/admin-residents";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const MEAL_TYPES = [
@@ -68,6 +69,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
   const [catalog, setCatalog] = useState<DishCatalogItem[]>([]);
   const [replacing, setReplacing] = useState(false);
   const [reviewUpdating, setReviewUpdating] = useState(false);
+  const isDemo = resident.id === DEMO_RESIDENT_ID;
   const monthKey = getMonthKey(month);
   const days = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
@@ -208,9 +210,9 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
             <Printer />
             식단표 출력
           </Button>
-          <Button size="sm" onClick={generate} disabled={loading || requesting || isGenerating}>
+          <Button size="sm" onClick={generate} disabled={isDemo || loading || requesting || isGenerating}>
             {requesting || isGenerating ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
-            {requesting || isGenerating ? "생성 중..." : hasRecommendations ? "다시 생성" : "월간 추천 생성"}
+            {isDemo ? "예시 식단" : requesting || isGenerating ? "생성 중..." : hasRecommendations ? "다시 생성" : "월간 추천 생성"}
           </Button>
         </div>
       </div>

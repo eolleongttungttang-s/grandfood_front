@@ -2,7 +2,11 @@ import { getJson, patchJson, postJson } from "@/lib/api";
 import { Resident } from "@/lib/admin-residents";
 import { getEmptyResidentDetail, type ResidentDetail } from "@/lib/admin-resident-detail";
 import type { CreateFacilityWardPayload } from "@/lib/admin-ward-registration";
-import { getConditionLabel } from "@/lib/admin-ward-registration";
+import {
+  getActivityLevelLabel,
+  getConditionLabel,
+  getMobilityLevelLabel,
+} from "@/lib/admin-ward-registration";
 
 /** 백엔드 GET/POST /gov/facility/wards 응답 항목
  * (organization/schemas.py의 WardSummaryResponse). */
@@ -163,13 +167,9 @@ export function wardDetailToView(ward: WardDetail, resident: Resident): Resident
       const [name, ...schedule] = line.split("/");
       return { name: name.trim(), schedule: schedule.join("/").trim() || "-" };
     });
-  const mobilityLabel = ward.mobility_level === "independent"
-    ? "독립 보행"
-    : ward.mobility_level === "needs_assistance"
-      ? "보행 도움 필요"
-      : ward.mobility_level === "bedridden"
-        ? "와상"
-        : "-";
+  const mobilityLabel = ward.mobility_level
+    ? getMobilityLevelLabel(ward.mobility_level)
+    : "-";
 
   return {
     ...empty,
@@ -190,14 +190,7 @@ export function wardDetailToView(ward: WardDetail, resident: Resident): Resident
       date: ward.checkup_date ?? "-",
       heightCm: ward.height_cm ?? "-",
       weightKg: ward.weight_kg ?? "-",
-      activityLevel: ward.activity_level
-        ? ({
-            sedentary: "거의 움직이지 않음",
-            low_active: "가벼운 활동",
-            active: "보통 활동",
-            very_active: "매우 활발함",
-          }[ward.activity_level] ?? ward.activity_level)
-        : "-",
+      activityLevel: ward.activity_level ? getActivityLevelLabel(ward.activity_level) : "-",
     },
   };
 }

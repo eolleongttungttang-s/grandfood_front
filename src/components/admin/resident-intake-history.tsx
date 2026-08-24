@@ -15,6 +15,7 @@ import {
   type DishCatalogItem,
   type MonthlyRecommendation,
 } from "@/lib/admin-monthly-recommendation-api";
+import { DEMO_RESIDENT_ID } from "@/lib/admin-residents";
 
 type DietDish = {
   banchan_id: string;
@@ -216,6 +217,41 @@ export function ResidentIntakeHistory({
       }
       try {
         const fetchDays = Math.max(7, daysBetween(startDate, todayKey()));
+        if (residentId === DEMO_RESIDENT_ID) {
+          const demoExcludedKeywords = ["가지", "우유", "땅콩"];
+          const allDemoDishes = (await fetchBanchanCatalog()).filter((dish) =>
+            dish.category !== "밥류"
+            && !demoExcludedKeywords.some((keyword) => dish.name.includes(keyword))
+          );
+          const lowSodiumDemoDishes = allDemoDishes
+            .filter((dish) => dish.sodiumMg !== null && dish.sodiumMg <= 300)
+            .sort((a, b) => (a.sodiumMg ?? 0) - (b.sodiumMg ?? 0));
+          const demoCatalog = lowSodiumDemoDishes.length >= 6
+            ? lowSodiumDemoDishes
+            : [...allDemoDishes].sort((a, b) => (a.sodiumMg ?? Number.MAX_SAFE_INTEGER) - (b.sodiumMg ?? Number.MAX_SAFE_INTEGER));
+          const demoDates = recentDateKeys(fetchDays);
+          const demoItems = demoDates.flatMap((date, dateIndex) =>
+            MEAL_TYPES.map((mealType, mealIndex): DietEntry => ({
+              meal_id: `demo-${date}-${mealType}`,
+              meal_date: date,
+              meal_type: mealType,
+              completed: date < todayKey() || mealIndex === 0,
+              recorded: date < todayKey() || mealIndex === 0,
+              quick_check_status: null,
+              dishes: Array.from({ length: 3 }, (_, dishIndex) => {
+                const dish = demoCatalog[(dateIndex * 9 + mealIndex * 3 + dishIndex) % Math.max(demoCatalog.length, 1)];
+                const result: DietDish | null = dish ? {
+                  banchan_id: dish.id,
+                  banchan_name: dish.name,
+                  leftover_pct: [8, 18, 27, 35, 12, 22][(dateIndex + mealIndex + dishIndex) % 6],
+                } : null;
+                return result;
+              }).filter((dish): dish is DietDish => dish !== null),
+            })),
+          );
+          setItems(demoItems);
+          return;
+        }
         const response = await fetch(
           `${getApiUrl()}/app/elder/${encodeURIComponent(residentId)}/diet-history?days=${fetchDays}`,
           { headers: { Authorization: `Bearer ${session.accessToken}` }, signal: controller.signal },
@@ -284,9 +320,37 @@ export function ResidentIntakeHistory({
     setSelectedDate(periodDates.at(-1) ?? todayKey());
   }
 
-  function printIntakeReport() {
+  async function printIntakeReport() {
+    const reportWindow = window.open("", "_blank", "width=1100,height=800");
+    if (!reportWindow) return;
+    reportWindow.document.write("<p style='font-family:sans-serif;padding:30px'>섭취 분석 리포트를 준비하고 있습니다.</p>");
     const reportEntries = dates.flatMap((date) => entriesByDate.get(date) ?? []);
     const reportNutrition = calculateNutrition(reportEntries, catalogById);
+    const reportMonths = await Promise.all(
+      [...new Set(dates.map((date) => date.slice(0, 7)))].map((month) =>
+        fetchMonthlyRecommendation(residentId, month).catch(() => null),
+      ),
+    );
+    const reportTargets = dates.reduce(
+      (total, date) => {
+        const target = recommendationTargetsForDate(
+          reportMonths.find((item) => item?.month === date.slice(0, 7)) ?? null,
+          date,
+        );
+        return {
+          calorie: total.calorie + (target?.target_calorie_kcal ?? 0),
+          protein: total.protein + (target?.target_protein_g ?? 0),
+          sodium: total.sodium + (target?.target_sodium_mg ?? 0),
+          availableDays: total.availableDays + Number(Boolean(target)),
+        };
+      },
+      { calorie: 0, protein: 0, sodium: 0, availableDays: 0 },
+    );
+    const metricValue = (value: number, target: number, unit: string) => {
+      const hasTarget = reportTargets.availableDays === dates.length && target > 0;
+      const rate = hasTarget ? Math.round((value / target) * 100) : null;
+      return `${Math.round(value).toLocaleString()}${unit} / ${hasTarget ? `${Math.round(target).toLocaleString()}${unit}` : "목표 없음"}${rate == null ? "" : ` (${rate}%)`}`;
+    };
     const measuredRates = dates
       .map((date) => dailyIntakeRate(date, entriesByDate.get(date) ?? [], registeredAt))
       .filter((rate): rate is number => rate !== null);
@@ -304,9 +368,8 @@ export function ResidentIntakeHistory({
       const rate = dailyIntakeRate(date, entries, registeredAt);
       return `<tr><th>${escapeHtml(date)}</th>${cells.map((cell) => `<td>${cell}</td>`).join("")}<td>${rate == null ? "—" : `${rate}%`}</td></tr>`;
     }).join("");
-    const reportWindow = window.open("", "_blank", "width=1100,height=800");
-    if (!reportWindow) return;
-    reportWindow.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(residentName)} 섭취 분석 리포트</title><style>body{font-family:Arial,'Noto Sans KR',sans-serif;color:#211812;padding:30px}h1{text-align:center;margin:0 0 6px}.meta{text-align:center;color:#6b625d;margin-bottom:24px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}.card{border:1px solid #d8cec7;border-radius:10px;padding:12px}.label{font-size:12px;color:#776d67}.value{font-size:20px;font-weight:800;margin-top:5px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #bfb5ae;padding:9px;vertical-align:top}thead th{background:#f3ece7}tbody th{white-space:nowrap;background:#faf7f4}.note{margin-top:16px;color:#776d67;font-size:10px}@media print{body{padding:0}}</style></head><body><h1>${escapeHtml(residentName)} 섭취 분석 리포트</h1><p class="meta">${escapeHtml(startDate)} ~ ${escapeHtml(endDate)}</p><div class="summary"><div class="card"><div class="label">평균 섭취율</div><div class="value">${averageRate == null ? "—" : `${averageRate}%`}</div></div><div class="card"><div class="label">추정 열량</div><div class="value">${Math.round(reportNutrition.calorie).toLocaleString()}kcal</div></div><div class="card"><div class="label">추정 단백질</div><div class="value">${Math.round(reportNutrition.protein).toLocaleString()}g</div></div><div class="card"><div class="label">추정 나트륨</div><div class="value">${Math.round(reportNutrition.sodium).toLocaleString()}mg</div></div></div><table><thead><tr><th>날짜</th><th>아침</th><th>점심</th><th>저녁</th><th>일일 섭취율</th></tr></thead><tbody>${rows}</tbody></table><p class="note">영양 섭취량은 반찬 100g 영양정보와 잔반 판독 비율을 적용한 참고용 추정치입니다.</p><script>window.onload=()=>window.print();<\/script></body></html>`);
+    reportWindow.document.open();
+    reportWindow.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(residentName)} 섭취 분석 리포트</title><style>body{font-family:Arial,'Noto Sans KR',sans-serif;color:#211812;padding:30px}h1{text-align:center;margin:0 0 6px}.meta{text-align:center;color:#6b625d;margin-bottom:24px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}.card{border:1px solid #d8cec7;border-radius:10px;padding:12px}.label{font-size:12px;color:#776d67}.value{font-size:16px;font-weight:800;margin-top:5px;white-space:nowrap}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #bfb5ae;padding:9px;vertical-align:top}thead th{background:#f3ece7}tbody th{white-space:nowrap;background:#faf7f4}.note{margin-top:16px;color:#776d67;font-size:10px}@media print{body{padding:0}}</style></head><body><h1>${escapeHtml(residentName)} 섭취 분석 리포트</h1><p class="meta">${escapeHtml(startDate)} ~ ${escapeHtml(endDate)}</p><div class="summary"><div class="card"><div class="label">평균 섭취율</div><div class="value">${averageRate == null ? "—" : `${averageRate}%`}</div></div><div class="card"><div class="label">추정 열량 / 기간 목표</div><div class="value">${metricValue(reportNutrition.calorie, reportTargets.calorie, "kcal")}</div></div><div class="card"><div class="label">추정 단백질 / 기간 목표</div><div class="value">${metricValue(reportNutrition.protein, reportTargets.protein, "g")}</div></div><div class="card"><div class="label">추정 나트륨 / 기간 목표</div><div class="value">${metricValue(reportNutrition.sodium, reportTargets.sodium, "mg")}</div></div></div><table><thead><tr><th>날짜</th><th>아침</th><th>점심</th><th>저녁</th><th>일일 섭취율</th></tr></thead><tbody>${rows}</tbody></table><p class="note">영양 섭취량은 반찬 100g 영양정보와 잔반 판독 비율을 적용한 참고용 추정치입니다. 목표 총량은 선택 기간에 포함된 각 날짜의 하루 목표를 합산했습니다.</p><script>window.onload=()=>window.print();<\/script></body></html>`);
     reportWindow.document.close();
   }
 

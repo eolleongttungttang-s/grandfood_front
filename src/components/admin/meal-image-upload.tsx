@@ -131,6 +131,7 @@ type ImageSlotProps = {
   onChange: (file: File) => void;
   onRemove: () => void;
   title: string;
+  uploadDisabled?: boolean;
 };
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
@@ -155,11 +156,13 @@ function ImageSlot({
   onChange,
   onRemove,
   title,
+  uploadDisabled = false,
 }: ImageSlotProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const validateAndChange = async (file?: File) => {
+    if (uploadDisabled) return;
     if (!file) return;
     if (!file.type.startsWith("image/") && !isHeicImage(file)) {
       toast.error("이미지 파일만 업로드할 수 있어요.");
@@ -194,6 +197,7 @@ function ImageSlot({
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
+    if (uploadDisabled) return;
     void validateAndChange(event.dataTransfer.files?.[0]);
   };
 
@@ -229,6 +233,7 @@ function ImageSlot({
         type="file"
         accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
         onChange={handleInputChange}
+        disabled={uploadDisabled}
       />
 
       {image ? (
@@ -259,21 +264,23 @@ function ImageSlot({
           role="button"
           tabIndex={0}
           aria-label={`${title} 업로드`}
-          className={`flex aspect-[16/9] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 text-center transition-colors ${
+          className={`flex aspect-[16/9] flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 text-center transition-colors ${uploadDisabled ? "cursor-not-allowed opacity-65" : "cursor-pointer"} ${
             isDragging
               ? "border-foreground bg-muted"
               : "border-border bg-muted/35 hover:border-muted-foreground/50 hover:bg-muted/70"
           }`}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => {
+            if (!uploadDisabled) inputRef.current?.click();
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              inputRef.current?.click();
+              if (!uploadDisabled) inputRef.current?.click();
             }
           }}
           onDragEnter={(event) => {
             event.preventDefault();
-            setIsDragging(true);
+            if (!uploadDisabled) setIsDragging(true);
           }}
           onDragOver={(event) => event.preventDefault()}
           onDragLeave={() => setIsDragging(false)}
@@ -282,8 +289,8 @@ function ImageSlot({
           <div className="mb-3 rounded-full border border-border bg-card p-3 shadow-sm">
             <ImagePlus className="h-5 w-5 text-muted-foreground" />
           </div>
-          <span className="text-sm font-bold text-foreground">클릭하거나 사진을 끌어 놓으세요</span>
-          <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, WEBP, HEIC · 최대 10MB</span>
+          <span className="text-sm font-bold text-foreground">{uploadDisabled ? "예시 대상자는 사진 업로드가 비활성화되어 있습니다" : "클릭하거나 사진을 끌어 놓으세요"}</span>
+          <span className="mt-1 text-xs text-muted-foreground">{uploadDisabled ? "실제 대상자에서 이미지 분석을 이용할 수 있습니다." : "JPG, PNG, WEBP, HEIC · 최대 10MB"}</span>
         </div>
       )}
     </div>
@@ -293,9 +300,11 @@ function ImageSlot({
 export function MealImageUpload({
   residentId,
   residentName,
+  uploadDisabled = false,
 }: {
   residentId: string;
   residentName: string;
+  uploadDisabled?: boolean;
 }) {
   const [beforeImage, setBeforeImage] = useState<MealImage | null>(null);
   const [afterImage, setAfterImage] = useState<MealImage | null>(null);
@@ -497,7 +506,7 @@ export function MealImageUpload({
         </div>
         <Button
           type="button"
-          disabled={!canAnalyze || isAnalyzing}
+          disabled={uploadDisabled || !canAnalyze || isAnalyzing}
           onClick={analyzeImages}
         >
           <Sparkles className="h-4 w-4" />
@@ -542,6 +551,7 @@ export function MealImageUpload({
           inputId="meal-before-image"
           onChange={(file) => replaceImage(file, setBeforeImage)}
           onRemove={() => setBeforeImage(null)}
+          uploadDisabled={uploadDisabled}
         />
         <ImageSlot
           badge="AFTER"
@@ -551,6 +561,7 @@ export function MealImageUpload({
           inputId="meal-after-image"
           onChange={(file) => replaceImage(file, setAfterImage)}
           onRemove={() => setAfterImage(null)}
+          uploadDisabled={uploadDisabled}
         />
       </div>
 

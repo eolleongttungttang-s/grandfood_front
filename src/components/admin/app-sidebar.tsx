@@ -39,8 +39,8 @@ import {
 const NAV_ITEMS = [
   { label: "공지사항", href: "/admin/notices", icon: Bell },
   { label: "대상자 명단", href: "/admin/residents", icon: UsersRound },
-  { label: "통합 모니터링", href: "/admin/statistics", icon: ChartNoAxesCombined },
-  { label: "통합 모니터링 2", href: "/admin/statistics-empty", icon: ChartNoAxesCombined },
+  { label: "통합 모니터링", href: "/admin/statistics-empty", icon: ChartNoAxesCombined },
+  { label: "통합 모니터링(예시)", href: "/admin/statistics", icon: ChartNoAxesCombined },
 ];
 
 export function AppSidebar() {
@@ -62,7 +62,7 @@ export function AppSidebar() {
   const managementPath = isSuperAdmin
     ? "/admin/dashboard?section=registration"
     : "/admin/dashboard?section=approvals";
-  const homePath = "/admin/statistics";
+  const homePath = "/admin/statistics-empty";
   const organizationName = getAdminOrganizationName(session);
 
   function handleLogout() {
