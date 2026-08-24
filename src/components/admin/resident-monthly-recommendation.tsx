@@ -74,6 +74,13 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
     const last = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
     return [...Array.from({ length: first }, () => null), ...Array.from({ length: last }, (_, index) => index + 1)];
   }, [month]);
+  const printableWeeks = useMemo(() => {
+    const recommendationDays = monthly?.days ?? [];
+    return Array.from(
+      { length: Math.ceil(recommendationDays.length / 7) },
+      (_, index) => recommendationDays.slice(index * 7, index * 7 + 7),
+    );
+  }, [monthly?.days]);
   const isGenerating = monthly?.weeks.some((week) => week.generation_status === "generating") ?? false;
   const hasRecommendations = monthly?.days?.some((day) => day.meals.some((meal) => meal.items.length > 0)) ?? false;
   const selectedDay = monthly?.days?.find((day) => day.service_date === selectedDate) ?? null;
@@ -293,38 +300,42 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
         </div>
       )}
     </div>
-    <section className="hidden bg-white p-8 text-black print:fixed print:inset-0 print:z-[9999] print:block print:overflow-visible">
-      <header className="mb-5 border-b-2 border-black pb-3 text-center">
-        <h1 className="text-2xl font-extrabold">{resident.name} 월간 식단표</h1>
-        <p className="mt-1 text-sm">{month.getFullYear()}년 {month.getMonth() + 1}월 · 아침·점심·저녁 반찬 추천</p>
-      </header>
-      <table className="w-full table-fixed border-collapse text-xs">
-        <thead>
-          <tr>
-            <th className="w-24 border border-black bg-slate-100 px-2 py-2">날짜</th>
-            {MEAL_TYPES.map((meal) => <th key={meal.value} className="border border-black bg-slate-100 px-2 py-2">{meal.label}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {(monthly?.days ?? []).map((day) => {
-            const parsedDate = new Date(`${day.service_date}T00:00:00`);
-            return (
-              <tr key={day.service_date} className="break-inside-avoid">
-                <th className="border border-black px-2 py-2 text-left align-top">
-                  {parsedDate.getMonth() + 1}/{parsedDate.getDate()} ({WEEKDAYS[parsedDate.getDay()]})
-                </th>
-                {MEAL_TYPES.map((meal) => {
-                  const mealEntry = day.meals.find((item) => item.meal_type === meal.value);
-                  const items = mealEntry?.items ?? [];
-                  const names = [...(mealEntry?.staple ? [mealEntry.staple.name] : []), ...items.map((item) => item.name)];
-                  return <td key={meal.value} className="border border-black px-2 py-2 align-top leading-5">{names.length > 0 ? names.join(" · ") : "-"}</td>;
-                })}
+    <section className="hidden bg-white text-black print:absolute print:inset-0 print:z-[9999] print:block print:w-full print:p-4">
+      {printableWeeks.map((week, weekIndex) => (
+        <article key={`print-week-${weekIndex}`} className={weekIndex < printableWeeks.length - 1 ? "break-after-page" : ""}>
+          <header className="mb-4 border-b-2 border-black pb-3 text-center">
+            <h1 className="text-xl font-extrabold">{resident.name} 월간 식단표</h1>
+            <p className="mt-1 text-xs">{month.getFullYear()}년 {month.getMonth() + 1}월 · {weekIndex + 1}주차 · 아침·점심·저녁</p>
+          </header>
+          <table className="w-full table-fixed border-collapse text-[10px]">
+            <thead>
+              <tr>
+                <th className="w-20 border border-black bg-slate-100 px-2 py-2">날짜</th>
+                {MEAL_TYPES.map((meal) => <th key={meal.value} className="border border-black bg-slate-100 px-2 py-2">{meal.label}</th>)}
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <p className="mt-3 text-[10px] text-slate-600">대상자의 건강 프로필을 기준으로 생성된 추천 식단이며, 필요 시 담당 영양사가 조정할 수 있습니다.</p>
+            </thead>
+            <tbody>
+              {week.map((day) => {
+                const parsedDate = new Date(`${day.service_date}T00:00:00`);
+                return (
+                  <tr key={day.service_date} className="break-inside-avoid">
+                    <th className="border border-black px-2 py-2 text-left align-top leading-4">
+                      {parsedDate.getMonth() + 1}/{parsedDate.getDate()} ({WEEKDAYS[parsedDate.getDay()]})
+                    </th>
+                    {MEAL_TYPES.map((meal) => {
+                      const mealEntry = day.meals.find((item) => item.meal_type === meal.value);
+                      const items = mealEntry?.items ?? [];
+                      const names = [...(mealEntry?.staple ? [mealEntry.staple.name] : []), ...items.map((item) => item.name)];
+                      return <td key={meal.value} className="border border-black px-2 py-2 align-top leading-4 whitespace-normal break-words">{names.length > 0 ? names.map((name, index) => <span key={`${name}-${index}`} className="block">{name}</span>) : "-"}</td>;
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-3 text-[9px] leading-4 text-slate-600">대상자의 건강 프로필을 기준으로 생성된 추천 식단이며, 필요 시 담당 영양사가 조정할 수 있습니다.</p>
+        </article>
+      ))}
     </section>
     </>
   );

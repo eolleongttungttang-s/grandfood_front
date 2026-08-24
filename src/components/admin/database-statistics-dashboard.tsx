@@ -2,15 +2,13 @@
 
 import { useEffect, useState } from "react";
 
-import {
-  StatisticsDashboard,
-  type CareFacility,
-} from "@/components/admin/statistics-dashboard";
+import { StatisticsDashboard } from "@/components/admin/statistics-dashboard";
 import { PageHeader } from "@/components/admin/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { getJson } from "@/lib/api";
 import { readAdminSession, type AdminSession } from "@/lib/admin-auth";
 import type { WardSummary } from "@/lib/admin-wards-api";
+import type { CareFacility } from "@/lib/statistics-mock";
 
 type FacilityApiResponse = {
   facility_id: string;
@@ -151,7 +149,7 @@ export function DatabaseStatisticsDashboard() {
     };
   }, []);
 
-  if (facilities) return <StatisticsDashboard facilities={facilities} scopeLabel={scopeLabel} />;
+  if (facilities) return <StatisticsDashboard facilities={facilities} scopeLabel={scopeLabel} facilityDetailBasePath="/admin/statistics-empty/facility?id=" />;
 
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
