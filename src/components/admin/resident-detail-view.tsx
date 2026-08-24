@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MealImageUpload } from "@/components/admin/meal-image-upload";
 import { ResidentIntakeHistory } from "@/components/admin/resident-intake-history";
 import { ResidentMonthlyRecommendation } from "@/components/admin/resident-monthly-recommendation";
+import { GrandFoodLogo } from "@/components/brand/grandfood-logo";
 import {
   updateFacilityWardHealthProfile,
   updateFacilityWardBasicInfo,
@@ -231,19 +232,6 @@ export function ResidentDetailView({
           <Button variant="outline" size="sm" onClick={() => setBasicEditOpen(true)}>
             <UserRoundPen /> 기본정보 수정
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => toast.success(`${resident.name}님 방문을 요청했어요.`)}
-          >
-            방문 요청
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => toast.success(`${resident.name}님 긴급 확인이 배정됐어요.`)}
-          >
-            긴급 확인 배정
-          </Button>
         </div>
       </div>
 
@@ -377,8 +365,16 @@ export function ResidentDetailView({
       </div>
 
       <div id="intake-history" className="scroll-mt-24">
-        <ResidentIntakeHistory residentId={resident.id} />
+        <ResidentIntakeHistory residentId={resident.id} residentName={residentView.name} registeredAt={resident.registeredAt} />
       </div>
+
+      <footer className="flex justify-center border-t border-border/60 py-11">
+        <GrandFoodLogo
+          className="opacity-70"
+          markClassName="h-12 w-12"
+          wordmarkClassName="text-xl font-extrabold text-muted-foreground"
+        />
+      </footer>
 
       {editOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">

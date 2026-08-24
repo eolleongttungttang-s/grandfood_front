@@ -12,6 +12,8 @@ export type Resident = {
   gender: "여" | "남" | "미상";
   facilityCode?: string;
   facilityId?: string;
+  /** 시설 대상자 등록 시각. 등록 전 날짜를 미섭취로 집계하지 않는 기준값. */
+  registeredAt?: string;
   address?: string;
   /** 기존 테스트 데이터 호환용 동 단위 주소 */
   dong: string;

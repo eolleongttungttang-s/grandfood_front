@@ -31,12 +31,44 @@ type Notice = {
 type NoticeFacility = {
   facilityId: string;
   facilityName: string;
+  facilityType: FacilityApiResponse["facility_type"];
+  region: string;
 };
 
 type FacilityApiResponse = {
   facility_id: string;
   name: string;
+  facility_type: "MUNICIPALITY" | "NURSING_HOME" | "WELFARE_CENTER";
+  facility_code: string;
 };
+
+type NoticeScope = "all" | "global" | "municipality" | "careFacility";
+
+const SEOUL_AGENCY_PREFIXES = new Set([
+  "JR", "JG", "YS", "SD", "GJ", "DDM", "JL", "SB", "GB", "DB", "NW", "EP", "SDM",
+  "MP", "YC", "GS", "GR", "GC", "YDP", "DJ", "GA", "SC", "GN", "SP", "GD",
+]);
+
+const REGION_ALIASES: Array<[string, string[]]> = [
+  ["서울특별시", ["서울특별시", "서울"]], ["부산광역시", ["부산광역시", "부산"]],
+  ["대구광역시", ["대구광역시", "대구"]], ["인천광역시", ["인천광역시", "인천"]],
+  ["광주광역시", ["광주광역시", "광주"]], ["대전광역시", ["대전광역시", "대전"]],
+  ["울산광역시", ["울산광역시", "울산"]], ["세종특별자치시", ["세종특별자치시", "세종"]],
+  ["경기도", ["경기도", "경기"]], ["강원특별자치도", ["강원특별자치도", "강원도", "강원"]],
+  ["충청북도", ["충청북도", "충북"]], ["충청남도", ["충청남도", "충남"]],
+  ["전북특별자치도", ["전북특별자치도", "전라북도", "전북"]], ["전라남도", ["전라남도", "전남"]],
+  ["경상북도", ["경상북도", "경북"]], ["경상남도", ["경상남도", "경남"]],
+  ["제주특별자치도", ["제주특별자치도", "제주"]],
+];
+
+function resolveFacilityRegion(facilityCode?: string | null, facilityName?: string | null) {
+  const prefix = facilityCode?.split("-")[0]?.toUpperCase();
+  if (prefix && SEOUL_AGENCY_PREFIXES.has(prefix)) return "서울특별시";
+  for (const [region, aliases] of REGION_ALIASES) {
+    if (aliases.some((alias) => facilityName?.includes(alias))) return region;
+  }
+  return "지역 미등록";
+}
 
 export function NoticesPanel() {
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -47,6 +79,10 @@ export function NoticesPanel() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [noticeScope, setNoticeScope] = useState<NoticeScope>("all");
+  const [facilityTypes, setFacilityTypes] = useState<Record<string, FacilityApiResponse["facility_type"]>>({});
+  const [facilityRegions, setFacilityRegions] = useState<Record<string, string>>({});
+  const [selectedRegion, setSelectedRegion] = useState("all");
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -65,16 +101,35 @@ export function NoticesPanel() {
       setFacilityId(sessionFacilityId);
       setFacilityName(sessionFacilityName);
 
+      if (sessionFacilityId) {
+        setFacilityTypes({
+          [sessionFacilityId]: isCareFacilityMember ? "NURSING_HOME" : "MUNICIPALITY",
+        });
+        setFacilityRegions({
+          [sessionFacilityId]: resolveFacilityRegion(
+            isCareFacilityMember ? session?.careFacilityCode : session?.facilityCode,
+            sessionFacilityName,
+          ),
+        });
+      }
+
       if (superAdmin) {
         void getJson<FacilityApiResponse[]>("/api/admin/facilities")
-          .then((rows) =>
+          .then((rows) => {
+            setFacilityTypes(Object.fromEntries(rows.map((facility) => [facility.facility_id, facility.facility_type])));
+            setFacilityRegions(Object.fromEntries(rows.map((facility) => [
+              facility.facility_id,
+              resolveFacilityRegion(facility.facility_code, facility.name),
+            ])));
             setAvailableFacilities(
               rows.map((facility) => ({
                 facilityId: facility.facility_id,
                 facilityName: facility.name,
+                facilityType: facility.facility_type,
+                region: resolveFacilityRegion(facility.facility_code, facility.name),
               })),
-            ),
-          )
+            );
+          })
           .catch(() => toast.error("기관 목록을 불러오지 못했습니다."));
       }
 
@@ -135,6 +190,37 @@ export function NoticesPanel() {
     }
   }
 
+  function scopeOf(notice: Notice): Exclude<NoticeScope, "all"> {
+    if (!notice.facility_id) return "global";
+    return facilityTypes[notice.facility_id] === "MUNICIPALITY"
+      ? "municipality"
+      : "careFacility";
+  }
+
+  const visibleNotices = notices.filter(
+    (notice) =>
+      (noticeScope === "all" || scopeOf(notice) === noticeScope) &&
+      (selectedRegion === "all" ||
+        (notice.facility_id && facilityRegions[notice.facility_id] === selectedRegion)),
+  );
+
+  const regions = [...new Set(Object.values(facilityRegions))]
+    .filter((region) => region !== "지역 미등록")
+    .sort((a, b) => a.localeCompare(b, "ko"));
+
+  const noticeCounts: Record<NoticeScope, number> = {
+    all: notices.length,
+    global: notices.filter((notice) => scopeOf(notice) === "global").length,
+    municipality: notices.filter((notice) => scopeOf(notice) === "municipality").length,
+    careFacility: notices.filter((notice) => scopeOf(notice) === "careFacility").length,
+  };
+
+  const scopeLabels: Record<Exclude<NoticeScope, "all">, string> = {
+    global: "전국 공지",
+    municipality: "지자체 공지",
+    careFacility: "산하시설 공지",
+  };
+
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -157,24 +243,61 @@ export function NoticesPanel() {
           <CardDescription>등록된 공지를 최신순으로 확인할 수 있습니다.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2 border-b pb-4">
+            {([
+              ["all", "전체 보기"],
+              ["global", "전국 공지"],
+              ["municipality", "지자체 공지"],
+              ["careFacility", "산하시설 공지"],
+            ] as const).map(([scope, label]) => (
+              <Button
+                key={scope}
+                type="button"
+                size="sm"
+                variant={noticeScope === scope ? "default" : "outline"}
+                onClick={() => setNoticeScope(scope)}
+              >
+                {label} {noticeCounts[scope]}
+              </Button>
+            ))}
+            <select
+              aria-label="지역 공지 필터"
+              value={selectedRegion}
+              onChange={(event) => setSelectedRegion(event.target.value)}
+              className="h-9 min-w-40 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="all">전체 지역</option>
+              {regions.map((region) => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+          </div>
           {loading && (
             <p className="py-12 text-center text-sm text-muted-foreground">
               공지사항을 불러오는 중입니다.
             </p>
           )}
-          {!loading && notices.length === 0 && (
+          {!loading && visibleNotices.length === 0 && (
             <p className="py-12 text-center text-sm text-muted-foreground">
-              등록된 공지사항이 없습니다.
+              해당 구분에 등록된 공지사항이 없습니다.
             </p>
           )}
-          {notices.map((notice) => (
+          {visibleNotices.map((notice) => (
             <article key={notice.notice_id} className="rounded-xl border p-4 transition-colors hover:bg-muted/40">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold">{notice.title}</h3>
                   <Badge variant={notice.facility_id ? "secondary" : "default"}>
-                    {notice.facility_name ?? "전체"}
+                    {scopeLabels[scopeOf(notice)]}
                   </Badge>
+                  <Badge variant="outline">
+                    {notice.facility_name ?? "전체 기관"}
+                  </Badge>
+                  {notice.facility_id && (
+                    <Badge variant="outline">
+                      {facilityRegions[notice.facility_id] ?? "지역 미등록"}
+                    </Badge>
+                  )}
                 </div>
                 <time className="text-xs text-muted-foreground">
                   {new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(
@@ -227,11 +350,24 @@ export function NoticesPanel() {
                     className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <option value="">전체 기관</option>
-                    {availableFacilities.map((facility) => (
-                      <option key={facility.facilityId} value={facility.facilityId}>
-                        {facility.facilityName}
-                      </option>
-                    ))}
+                    <optgroup label="지자체">
+                      {availableFacilities
+                        .filter((facility) => facility.facilityType === "MUNICIPALITY")
+                        .map((facility) => (
+                          <option key={facility.facilityId} value={facility.facilityId}>
+                            {facility.region} · {facility.facilityName}
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label="산하시설">
+                      {availableFacilities
+                        .filter((facility) => facility.facilityType !== "MUNICIPALITY")
+                        .map((facility) => (
+                          <option key={facility.facilityId} value={facility.facilityId}>
+                            {facility.region} · {facility.facilityName}
+                          </option>
+                        ))}
+                    </optgroup>
                   </select>
                 </div>
               ) : (

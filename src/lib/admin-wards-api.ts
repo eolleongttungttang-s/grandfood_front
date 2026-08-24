@@ -20,6 +20,7 @@ export type WardSummary = {
   note?: string | null;
   case_worker_name: string | null;
   case_worker_role: string | null;
+  created_at?: string | null;
 };
 
 export type WardFoodRule = {
@@ -93,6 +94,7 @@ export function toResident(ward: WardSummary): Resident {
     age: ward.age,
     gender: ward.gender === "male" ? "남" : ward.gender === "female" ? "여" : "미상",
     facilityCode: ward.facility_code ?? undefined,
+    registeredAt: ward.created_at ?? undefined,
     address: ward.address,
     dong: ward.address,
     // admin-resident-detail.ts의 getResidentDetail이 이 문자열을 "·"로 쪼개 진단명

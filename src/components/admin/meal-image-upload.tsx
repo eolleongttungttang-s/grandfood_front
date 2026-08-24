@@ -18,6 +18,11 @@ import {
 } from "@/components/ui/select";
 import { readAdminSession } from "@/lib/admin-auth";
 import { extractErrorMessage, getApiUrl } from "@/lib/api";
+import {
+  fetchMonthlyRecommendation,
+  type FacilityMealType,
+  type MonthlyRecommendation,
+} from "@/lib/admin-monthly-recommendation-api";
 
 type MealImage = {
   file: File;
@@ -26,7 +31,7 @@ type MealImage = {
 
 type DishAnalysis = {
   name: string;
-  consumedPercent: number;
+  consumedPercent: number | null;
   description: string;
 };
 
@@ -72,12 +77,50 @@ function getCurrentMealSlot() {
   return "저녁";
 }
 
+const MEAL_SLOT_TYPE: Record<string, FacilityMealType> = {
+  아침: "breakfast",
+  점심: "lunch",
+  저녁: "dinner",
+};
+
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function localMonthKey(date = new Date()) {
+  return localDateKey(date).slice(0, 7);
+}
+
+function recommendationIdForDate(monthly: MonthlyRecommendation | null, date: string) {
+  const target = Date.parse(`${date}T00:00:00Z`);
+  return monthly?.weeks.find((week) => {
+    const start = Date.parse(`${week.week_start_date}T00:00:00Z`);
+    return target >= start && target < start + 7 * 86_400_000;
+  })?.recommendation?.id ?? null;
+}
+
 function intakeDescription(percent: number) {
   if (percent >= 90) return "거의 모두 섭취했습니다.";
   if (percent >= 70) return "대부분 섭취했습니다.";
   if (percent >= 50) return "절반 이상 섭취했습니다.";
   if (percent > 0) return "섭취량이 절반보다 적습니다.";
   return "섭취하지 않았습니다.";
+}
+
+function normalizeMenuName(name: string) {
+  return name.replace(/\s+/g, "").toLowerCase();
+}
+
+function includeUnmeasuredMenuItems(detected: DishAnalysis[], menuNames: string[]) {
+  const detectedNames = new Set(detected.map((dish) => normalizeMenuName(dish.name)));
+  const unmeasured = menuNames
+    .filter((name) => !detectedNames.has(normalizeMenuName(name)))
+    .map((name): DishAnalysis => ({
+      name,
+      consumedPercent: null,
+      description: "메뉴에는 포함되어 있지만 사진에서 섭취량을 판독하지 못했습니다.",
+    }));
+  return [...detected, ...unmeasured];
 }
 
 type ImageSlotProps = {
@@ -262,6 +305,17 @@ export function MealImageUpload({
   const [pendingAnalysisMealId, setPendingAnalysisMealId] = useState<string | null>(null);
   const [analysisTimedOut, setAnalysisTimedOut] = useState(false);
   const [mealSlot, setMealSlot] = useState(getCurrentMealSlot);
+  const [todayRecommendation, setTodayRecommendation] = useState<MonthlyRecommendation | null>(null);
+  const [recommendationLoading, setRecommendationLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMonthlyRecommendation(residentId, localMonthKey())
+      .then((result) => { if (!cancelled) setTodayRecommendation(result); })
+      .catch(() => { if (!cancelled) setTodayRecommendation(null); })
+      .finally(() => { if (!cancelled) setRecommendationLoading(false); });
+    return () => { cancelled = true; };
+  }, [residentId]);
 
   useEffect(() => {
     const previewUrl = beforeImage?.previewUrl;
@@ -285,6 +339,16 @@ export function MealImageUpload({
   };
 
   const canAnalyze = Boolean(beforeImage && afterImage && mealSlot);
+  const todayKey = localDateKey();
+  const selectedMealType = MEAL_SLOT_TYPE[mealSlot];
+  const selectedRecommendationMeal = todayRecommendation?.days
+    ?.find((day) => day.service_date === todayKey)
+    ?.meals.find((meal) => meal.meal_type === selectedMealType) ?? null;
+  const selectedMenuNames = [
+    ...(selectedRecommendationMeal?.staple ? [selectedRecommendationMeal.staple.name] : []),
+    ...(selectedRecommendationMeal?.items.map((item) => item.name) ?? []),
+  ];
+  const recommendationId = recommendationIdForDate(todayRecommendation, todayKey);
 
   const fetchAnalysisResult = async (mealId: string, accessToken?: string) => {
     for (let attempt = 0; attempt < ANALYSIS_POLL_MAX_ATTEMPTS; attempt += 1) {
@@ -307,7 +371,7 @@ export function MealImageUpload({
         (item) => item.meal_id === mealId,
       );
       if (match?.dishes?.length) {
-        return match.dishes.map((dish) => {
+        const detected = match.dishes.map((dish) => {
           const consumedPercent = Math.max(0, Math.min(100, Math.round(100 - dish.leftover_pct)));
           return {
             name: dish.banchan_name ?? "반찬",
@@ -315,6 +379,7 @@ export function MealImageUpload({
             description: intakeDescription(consumedPercent),
           };
         });
+        return includeUnmeasuredMenuItems(detected, selectedMenuNames);
       }
     }
     return null;
@@ -373,7 +438,7 @@ export function MealImageUpload({
       formData.append("mealSlot", mealSlot);
       formData.append(
         "comboId",
-        `AUTO-${new Date().toISOString().slice(0, 10)}-${mealSlot}`,
+        recommendationId ?? `AUTO-${todayKey}-${mealSlot}`,
       );
       formData.append("beforePhoto", beforeImage.file);
       formData.append("afterPhoto", afterImage.file);
@@ -453,6 +518,18 @@ export function MealImageUpload({
               <SelectItem value="저녁">저녁</SelectItem>
             </SelectContent>
           </Select>
+          <div className="rounded-lg border border-border bg-background px-3 py-2.5">
+            <p className="text-xs font-semibold text-muted-foreground">{todayKey} {mealSlot} 분석 기준 식단</p>
+            {recommendationLoading ? (
+              <p className="mt-1 text-sm text-muted-foreground">추천 식단을 확인하는 중입니다.</p>
+            ) : selectedMenuNames.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {selectedMenuNames.map((name) => <Badge key={name} variant="secondary">{name}</Badge>)}
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-amber-700">이 날짜와 끼니에 저장된 추천 식단이 없습니다. GPU는 일반 분석으로 진행됩니다.</p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -501,18 +578,19 @@ export function MealImageUpload({
                     <p className="text-xs text-muted-foreground">반찬별 예상 섭취 비율입니다.</p>
                   </div>
                 </div>
-                <span className="rounded-full bg-foreground px-3 py-1 text-sm font-bold text-background">
-                  평균 {Math.round(analysisResult.reduce((sum, dish) => sum + dish.consumedPercent, 0) / analysisResult.length)}% 섭취
-                </span>
+                {(() => {
+                  const measured = analysisResult.filter((dish): dish is DishAnalysis & { consumedPercent: number } => dish.consumedPercent !== null);
+                  return measured.length > 0 ? <span className="rounded-full bg-foreground px-3 py-1 text-sm font-bold text-background">평균 {Math.round(measured.reduce((sum, dish) => sum + dish.consumedPercent, 0) / measured.length)}% 섭취</span> : <Badge variant="outline">판독 결과 없음</Badge>;
+                })()}
               </div>
               <div className="grid gap-4 p-5 sm:grid-cols-2">
                 {analysisResult.map((dish) => (
                   <div key={dish.name} className="rounded-lg border border-border p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <span className="font-bold text-foreground">{dish.name}</span>
-                      <span className="text-sm font-extrabold text-foreground">{dish.consumedPercent}%</span>
+                      <span className="text-sm font-extrabold text-foreground">{dish.consumedPercent === null ? "분석 불가" : `${dish.consumedPercent}%`}</span>
                     </div>
-                    <Progress value={dish.consumedPercent} />
+                    <Progress value={dish.consumedPercent ?? 0} />
                     <p className="mt-2 text-xs text-muted-foreground">{dish.description}</p>
                   </div>
                 ))}
