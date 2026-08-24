@@ -23,6 +23,7 @@ import {
   type FacilityMealType,
   type MonthlyRecommendation,
 } from "@/lib/admin-monthly-recommendation-api";
+import { recommendationForDate } from "@/lib/admin-recommendation-date";
 
 type MealImage = {
   file: File;
@@ -89,14 +90,6 @@ function localDateKey(date = new Date()) {
 
 function localMonthKey(date = new Date()) {
   return localDateKey(date).slice(0, 7);
-}
-
-function recommendationIdForDate(monthly: MonthlyRecommendation | null, date: string) {
-  const target = Date.parse(`${date}T00:00:00Z`);
-  return monthly?.weeks.find((week) => {
-    const start = Date.parse(`${week.week_start_date}T00:00:00Z`);
-    return target >= start && target < start + 7 * 86_400_000;
-  })?.recommendation?.id ?? null;
 }
 
 function intakeDescription(percent: number) {
@@ -357,7 +350,7 @@ export function MealImageUpload({
     ...(selectedRecommendationMeal?.staple ? [selectedRecommendationMeal.staple.name] : []),
     ...(selectedRecommendationMeal?.items.map((item) => item.name) ?? []),
   ];
-  const recommendationId = recommendationIdForDate(todayRecommendation, todayKey);
+  const recommendationId = recommendationForDate(todayRecommendation, todayKey)?.id ?? null;
 
   const fetchAnalysisResult = async (mealId: string, accessToken?: string) => {
     for (let attempt = 0; attempt < ANALYSIS_POLL_MAX_ATTEMPTS; attempt += 1) {

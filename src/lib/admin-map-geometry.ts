@@ -111,13 +111,16 @@ export function projectMapFeatures<T extends { geometry: MapGeometry }>(
     // 놓일 수 있다. 가장 큰 본토 외곽선의 실제 도형 중심을 라벨 기준으로 사용한다.
     const labelRing = largestOuterRing(feature.geometry);
     const featurePoints = labelRing.length ? labelRing : rings.flat();
+    if (!featurePoints.length) continue;
     const featureXs = featurePoints.map(([x]) => x);
     const featureYs = featurePoints.map(([, y]) => y);
     const featureMinX = Math.min(...featureXs);
     const featureMaxX = Math.max(...featureXs);
     const featureMinY = Math.min(...featureYs);
     const featureMaxY = Math.max(...featureYs);
-    const [centroidX, centroidY] = ringCentroid(featurePoints);
+    const [centroidX, centroidY] = labelRing.length
+      ? ringCentroid(labelRing)
+      : [(featureMinX + featureMaxX) / 2, (featureMinY + featureMaxY) / 2];
     labels.set(key, {
       x: offsetX + (centroidX - minX) * scale,
       y: 500 - offsetY - (centroidY - minY) * scale,

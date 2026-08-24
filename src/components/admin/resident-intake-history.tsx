@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/preserve-manual-memoization -- derived intake maps are intentionally cached by source state */
 
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, LoaderCircle, Printer } from "lucide-react";
@@ -16,6 +17,7 @@ import {
   type MonthlyRecommendation,
 } from "@/lib/admin-monthly-recommendation-api";
 import { DEMO_RESIDENT_ID } from "@/lib/admin-residents";
+import { recommendationForDate } from "@/lib/admin-recommendation-date";
 
 type DietDish = {
   banchan_id: string;
@@ -131,14 +133,15 @@ function isWithinRegisteredPeriod(dateKey: string, registeredAt?: string) {
 }
 
 function dailyIntakeRate(dateKey: string, entries: DietEntry[], registeredAt?: string) {
-  if (!isPastDate(dateKey) || !isWithinRegisteredPeriod(dateKey, registeredAt)) {
-    return intakeRate(entries);
+  const measuredRates = entries
+    .map((entry) => intakeRate([entry]))
+    .filter((rate): rate is number => rate !== null);
+  if (measuredRates.length > 0) {
+    return Math.round(measuredRates.reduce((sum, rate) => sum + rate, 0) / measuredRates.length);
   }
-  const rates = MEAL_TYPES.map((mealType) => {
-    const entry = entries.find((item) => item.meal_type === mealType);
-    return entry ? intakeRate([entry]) ?? 0 : 0;
-  });
-  return Math.round(rates.reduce((sum, rate) => sum + rate, 0) / MEAL_TYPES.length);
+  return isPastDate(dateKey) && isWithinRegisteredPeriod(dateKey, registeredAt) && entries.length === 0
+    ? 0
+    : null;
 }
 
 function dayLabel(dateKey: string) {
@@ -147,20 +150,12 @@ function dayLabel(dateKey: string) {
   return `${weekday} ${Number(month)}/${Number(day)}`;
 }
 
-function recommendationTargetsForDate(monthly: MonthlyRecommendation | null, selectedDate: string) {
-  const targetDate = dateFromKey(selectedDate).getTime();
-  return monthly?.weeks.find((week) => {
-    const start = dateFromKey(week.week_start_date).getTime();
-    return targetDate >= start && targetDate < start + 7 * 86_400_000;
-  })?.recommendation ?? null;
-}
-
-function calculateNutrition(entries: DietEntry[], catalogById: Map<string, DishCatalogItem>) {
+function calculateNutrition(entries: DietEntry[], catalogById: Record<string, DishCatalogItem>) {
   return entries
     .flatMap((entry) => entry.dishes)
     .reduce(
       (total, dish) => {
-        const nutrition = catalogById.get(dish.banchan_id);
+        const nutrition = catalogById[dish.banchan_id];
         const intakeRatio = Math.max(0, Math.min(1, (100 - dish.leftover_pct) / 100));
         return {
           calorie: total.calorie + (nutrition?.kcal ?? 0) * intakeRatio,
@@ -182,6 +177,45 @@ function escapeHtml(value: string) {
   })[character] ?? character);
 }
 
+function NutritionMetricCard({
+  label,
+  value,
+  target,
+  unit,
+  targetAvailable = true,
+  className = "bg-background p-3",
+}: {
+  label: string;
+  value: number;
+  target: number | null | undefined;
+  unit: string;
+  targetAvailable?: boolean;
+  className?: string;
+}) {
+  const hasTarget = targetAvailable && target != null && target > 0;
+  const rate = hasTarget ? Math.round((value / target) * 100) : null;
+  return (
+    <div className={`rounded-lg border ${className}`}>
+      <div className="flex items-center justify-between gap-2">
+        <strong className="text-xs text-muted-foreground">{label}</strong>
+        <span className="text-xs font-bold">{rate == null ? "—" : `${rate}%`}</span>
+      </div>
+      <p className="mt-2 text-lg font-extrabold">
+        {Math.round(value).toLocaleString()}{unit}
+        <span className="ml-1 text-xs font-medium text-muted-foreground">
+          / {hasTarget ? `${Math.round(target).toLocaleString()}${unit}` : "목표 없음"}
+        </span>
+      </p>
+      <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-border">
+        <div
+          className="h-full rounded-full bg-primary transition-[width]"
+          style={{ width: `${Math.min(rate ?? 0, 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function ResidentIntakeHistory({
   residentId,
   residentName,
@@ -200,8 +234,7 @@ export function ResidentIntakeHistory({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<DishCatalogItem[]>([]);
-  const [monthly, setMonthly] = useState<MonthlyRecommendation | null>(null);
-  const [recentMonthly, setRecentMonthly] = useState<MonthlyRecommendation[]>([]);
+  const [recommendationsByMonth, setRecommendationsByMonth] = useState<Record<string, MonthlyRecommendation>>({});
   const [activeTab, setActiveTab] = useState<"summary" | "history" | "nutrition">("history");
 
   useEffect(() => {
@@ -284,34 +317,25 @@ export function ResidentIntakeHistory({
     };
   }, []);
 
+  const recommendationMonths = useMemo(() => [...new Set([
+    selectedDate.slice(0, 7),
+    ...currentWeekDateKeys().map((date) => date.slice(0, 7)),
+  ])], [selectedDate]);
   useEffect(() => {
     let cancelled = false;
-    void fetchMonthlyRecommendation(residentId, selectedDate.slice(0, 7))
-      .then((result) => {
-        if (!cancelled) setMonthly(result);
-      })
-      .catch(() => {
-        if (!cancelled) setMonthly(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [residentId, selectedDate]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const months = [...new Set(currentWeekDateKeys().map((date) => date.slice(0, 7)))];
-    void Promise.all(months.map((month) => fetchMonthlyRecommendation(residentId, month)))
+    void Promise.all(recommendationMonths.map((month) => fetchMonthlyRecommendation(residentId, month)))
       .then((results) => {
-        if (!cancelled) setRecentMonthly(results);
+        if (!cancelled) setRecommendationsByMonth(
+          Object.fromEntries(results.map((result) => [result.month, result])),
+        );
       })
       .catch(() => {
-        if (!cancelled) setRecentMonthly([]);
+        if (!cancelled) setRecommendationsByMonth({});
       });
     return () => {
       cancelled = true;
     };
-  }, [residentId]);
+  }, [residentId, recommendationMonths]);
 
   function selectRecentPeriod(days: number) {
     const periodDates = recentDateKeys(days);
@@ -324,7 +348,7 @@ export function ResidentIntakeHistory({
     const reportWindow = window.open("", "_blank", "width=1100,height=800");
     if (!reportWindow) return;
     reportWindow.document.write("<p style='font-family:sans-serif;padding:30px'>섭취 분석 리포트를 준비하고 있습니다.</p>");
-    const reportEntries = dates.flatMap((date) => entriesByDate.get(date) ?? []);
+    const reportEntries = dates.flatMap((date) => entriesByDate[date] ?? []);
     const reportNutrition = calculateNutrition(reportEntries, catalogById);
     const reportMonths = await Promise.all(
       [...new Set(dates.map((date) => date.slice(0, 7)))].map((month) =>
@@ -333,7 +357,7 @@ export function ResidentIntakeHistory({
     );
     const reportTargets = dates.reduce(
       (total, date) => {
-        const target = recommendationTargetsForDate(
+        const target = recommendationForDate(
           reportMonths.find((item) => item?.month === date.slice(0, 7)) ?? null,
           date,
         );
@@ -352,18 +376,18 @@ export function ResidentIntakeHistory({
       return `${Math.round(value).toLocaleString()}${unit} / ${hasTarget ? `${Math.round(target).toLocaleString()}${unit}` : "목표 없음"}${rate == null ? "" : ` (${rate}%)`}`;
     };
     const measuredRates = dates
-      .map((date) => dailyIntakeRate(date, entriesByDate.get(date) ?? [], registeredAt))
+      .map((date) => dailyIntakeRate(date, entriesByDate[date] ?? [], registeredAt))
       .filter((rate): rate is number => rate !== null);
     const averageRate = measuredRates.length > 0
       ? Math.round(measuredRates.reduce((sum, rate) => sum + rate, 0) / measuredRates.length)
       : null;
     const rows = dates.map((date) => {
-      const entries = entriesByDate.get(date) ?? [];
+      const entries = entriesByDate[date] ?? [];
       const cells = MEAL_TYPES.map((mealType) => {
         const entry = entries.find((item) => item.meal_type === mealType);
         if (!entry) return isPastDate(date) && isWithinRegisteredPeriod(date, registeredAt) ? "미섭취" : "기록 없음";
-        if (entry.dishes.length === 0) return entry.quick_check_status ?? "분석 결과 없음";
-        return entry.dishes.map((dish) => `${dish.banchan_name ?? "반찬명 미확인"} ${Math.round(100 - dish.leftover_pct)}%`).join("<br>");
+        if (entry.dishes.length === 0) return escapeHtml(entry.quick_check_status ?? "분석 결과 없음");
+        return entry.dishes.map((dish) => `${escapeHtml(dish.banchan_name ?? "반찬명 미확인")} ${Math.round(100 - dish.leftover_pct)}%`).join("<br>");
       });
       const rate = dailyIntakeRate(date, entries, registeredAt);
       return `<tr><th>${escapeHtml(date)}</th>${cells.map((cell) => `<td>${cell}</td>`).join("")}<td>${rate == null ? "—" : `${rate}%`}</td></tr>`;
@@ -373,29 +397,44 @@ export function ResidentIntakeHistory({
     reportWindow.document.close();
   }
 
-  const entriesByDate = (() => {
-    const grouped = new Map<string, DietEntry[]>();
+  const entriesByDate = useMemo(() => {
+    const grouped: Record<string, DietEntry[]> = {};
     for (const item of items) {
-      grouped.set(item.meal_date, [...(grouped.get(item.meal_date) ?? []), item]);
+      grouped[item.meal_date] = [...(grouped[item.meal_date] ?? []), item];
     }
-    const map = new Map<string, DietEntry[]>();
-    for (const [date, entries] of grouped) map.set(date, oneEntryPerMeal(entries));
-    return map;
-  })();
-  const recentSeven = currentWeekDateKeys();
-  const selectedEntries = entriesByDate.get(selectedDate) ?? [];
+    return Object.fromEntries(
+      Object.entries(grouped).map(([date, entries]) => [date, oneEntryPerMeal(entries)]),
+    );
+  }, [items]);
+  const recentSeven = useMemo(() => currentWeekDateKeys(), []);
+  const selectedEntries = useMemo(
+    () => entriesByDate[selectedDate] ?? [],
+    [entriesByDate, selectedDate],
+  );
   const selectedRate = dailyIntakeRate(selectedDate, selectedEntries, registeredAt);
   const selectedDateIsMissed =
     isPastDate(selectedDate) && isWithinRegisteredPeriod(selectedDate, registeredAt);
-  const catalogById = new Map(catalog.map((dish) => [dish.id, dish]));
-  const actualNutrition = calculateNutrition(selectedEntries, catalogById);
-  const recentSevenEntries = recentSeven.flatMap((date) => entriesByDate.get(date) ?? []);
-  const recentSevenNutrition = calculateNutrition(recentSevenEntries, catalogById);
+  const catalogById = useMemo(
+    () => Object.fromEntries(catalog.map((dish) => [dish.id, dish])),
+    [catalog],
+  );
+  const actualNutrition = useMemo(
+    () => calculateNutrition(selectedEntries, catalogById),
+    [selectedEntries, catalogById],
+  );
+  const recentSevenEntries = useMemo(
+    () => recentSeven.flatMap((date) => entriesByDate[date] ?? []),
+    [recentSeven, entriesByDate],
+  );
+  const recentSevenNutrition = useMemo(
+    () => calculateNutrition(recentSevenEntries, catalogById),
+    [recentSevenEntries, catalogById],
+  );
   const hasRecentNutrition = recentSevenEntries.some((entry) => entry.dishes.length > 0);
-  const recentTargets = recentSeven.reduce(
+  const recentTargets = useMemo(() => recentSeven.reduce(
     (total, date) => {
-      const target = recommendationTargetsForDate(
-        recentMonthly.find((item) => item.month === date.slice(0, 7)) ?? null,
+      const target = recommendationForDate(
+        recommendationsByMonth[date.slice(0, 7)] ?? null,
         date,
       );
       return {
@@ -406,8 +445,11 @@ export function ResidentIntakeHistory({
       };
     },
     { calorie: 0, protein: 0, sodium: 0, availableDays: 0 },
+  ), [recentSeven, recommendationsByMonth]);
+  const targets = recommendationForDate(
+    recommendationsByMonth[selectedDate.slice(0, 7)] ?? null,
+    selectedDate,
   );
-  const targets = recommendationTargetsForDate(monthly, selectedDate);
   const hasAnalyzedDishes = selectedEntries.some((entry) => entry.dishes.length > 0);
 
   if (loading) {
@@ -447,7 +489,7 @@ export function ResidentIntakeHistory({
             <p className="mb-4 text-xs text-muted-foreground">월요일부터 일요일까지 식전·식후 이미지의 반찬별 잔반 분석을 기준으로 계산합니다.</p>
             <div className="grid grid-cols-7 gap-2">
             {recentSeven.map((date) => {
-              const rate = dailyIntakeRate(date, entriesByDate.get(date) ?? [], registeredAt);
+              const rate = dailyIntakeRate(date, entriesByDate[date] ?? [], registeredAt);
               return (
                 <div key={date} className="flex min-w-0 flex-col items-center gap-1.5">
                   <span className="h-5 text-xs font-bold">{rate === null ? "—" : `${rate}%`}</span>
@@ -473,30 +515,14 @@ export function ResidentIntakeHistory({
                     { label: "열량", value: recentSevenNutrition.calorie, target: recentTargets.calorie, unit: "kcal" },
                     { label: "단백질", value: recentSevenNutrition.protein, target: recentTargets.protein, unit: "g" },
                     { label: "나트륨", value: recentSevenNutrition.sodium, target: recentTargets.sodium, unit: "mg" },
-                  ].map(({ label, value, target, unit }) => {
-                    const hasTarget = recentTargets.availableDays === 7 && target > 0;
-                    const rate = hasTarget ? Math.round((value / target) * 100) : null;
-                    return (
-                      <div key={label} className="rounded-lg border bg-muted/30 px-4 py-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-                          <strong className="text-xs">{rate == null ? "—" : `${rate}%`}</strong>
-                        </div>
-                        <p className="mt-1 text-xl font-extrabold">
-                          {Math.round(value).toLocaleString()}{unit}
-                          <span className="ml-1 text-xs font-semibold text-muted-foreground">
-                            / {hasTarget ? `${Math.round(target).toLocaleString()}${unit}` : "목표 없음"}
-                          </span>
-                        </p>
-                        <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-border">
-                          <div
-                            className="h-full rounded-full bg-primary transition-[width]"
-                            style={{ width: `${Math.min(rate ?? 0, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                  ].map((metric) => (
+                    <NutritionMetricCard
+                      key={metric.label}
+                      {...metric}
+                      targetAvailable={recentTargets.availableDays === recentSeven.length}
+                      className="bg-muted/30 px-4 py-3"
+                    />
+                  ))}
                 </div>
               ) : (
                 <p className="mt-3 rounded-lg bg-muted px-3 py-5 text-center text-xs text-muted-foreground">이번 주에 계산할 수 있는 잔반 분석 결과가 없습니다.</p>
@@ -556,7 +582,7 @@ export function ResidentIntakeHistory({
             </div>
             <div className="grid grid-cols-7 gap-2 md:grid-cols-14">
               {dates.map((date) => {
-                const rate = dailyIntakeRate(date, entriesByDate.get(date) ?? [], registeredAt);
+                const rate = dailyIntakeRate(date, entriesByDate[date] ?? [], registeredAt);
                 return (
                   <button
                     key={date}
@@ -638,29 +664,7 @@ export function ResidentIntakeHistory({
                     { label: "열량", value: actualNutrition.calorie, target: targets?.target_calorie_kcal, unit: "kcal" },
                     { label: "단백질", value: actualNutrition.protein, target: targets?.target_protein_g, unit: "g" },
                     { label: "나트륨", value: actualNutrition.sodium, target: targets?.target_sodium_mg, unit: "mg" },
-                  ].map(({ label, value, target, unit }) => {
-                    const rate = target && target > 0 ? Math.round((value / target) * 100) : null;
-                    return (
-                      <div key={label} className="rounded-lg border bg-background p-3">
-                        <strong className="text-xs">{label}</strong>
-                        <p className="mt-2 text-lg font-extrabold">
-                          {Math.round(value).toLocaleString()}{unit}
-                          <span className="ml-1 text-xs font-medium text-muted-foreground">
-                            / {target == null ? "목표 없음" : `${Math.round(target).toLocaleString()}${unit}`}
-                          </span>
-                        </p>
-                        <div className="mt-2 flex items-center gap-2">
-                          <div className="h-2.5 w-full overflow-hidden rounded-full bg-border">
-                            <div
-                              className="h-full rounded-full bg-primary transition-[width]"
-                              style={{ width: `${Math.min(rate ?? 0, 100)}%` }}
-                            />
-                          </div>
-                          <span className="min-w-9 text-right text-xs font-bold">{rate == null ? "—" : `${rate}%`}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  ].map((metric) => <NutritionMetricCard key={metric.label} {...metric} />)}
                 </div>
               )}
               {hasAnalyzedDishes && (

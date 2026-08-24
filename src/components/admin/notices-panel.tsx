@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { readAdminSession } from "@/lib/admin-auth";
 import { getJson, postJson } from "@/lib/api";
+import { resolveAdminRegion } from "@/lib/admin-region";
 
 type Notice = {
   notice_id: string;
@@ -40,35 +41,10 @@ type FacilityApiResponse = {
   name: string;
   facility_type: "MUNICIPALITY" | "NURSING_HOME" | "WELFARE_CENTER";
   facility_code: string;
+  department: string | null;
 };
 
 type NoticeScope = "all" | "global" | "municipality" | "careFacility";
-
-const SEOUL_AGENCY_PREFIXES = new Set([
-  "JR", "JG", "YS", "SD", "GJ", "DDM", "JL", "SB", "GB", "DB", "NW", "EP", "SDM",
-  "MP", "YC", "GS", "GR", "GC", "YDP", "DJ", "GA", "SC", "GN", "SP", "GD",
-]);
-
-const REGION_ALIASES: Array<[string, string[]]> = [
-  ["서울특별시", ["서울특별시", "서울"]], ["부산광역시", ["부산광역시", "부산"]],
-  ["대구광역시", ["대구광역시", "대구"]], ["인천광역시", ["인천광역시", "인천"]],
-  ["광주광역시", ["광주광역시", "광주"]], ["대전광역시", ["대전광역시", "대전"]],
-  ["울산광역시", ["울산광역시", "울산"]], ["세종특별자치시", ["세종특별자치시", "세종"]],
-  ["경기도", ["경기도", "경기"]], ["강원특별자치도", ["강원특별자치도", "강원도", "강원"]],
-  ["충청북도", ["충청북도", "충북"]], ["충청남도", ["충청남도", "충남"]],
-  ["전북특별자치도", ["전북특별자치도", "전라북도", "전북"]], ["전라남도", ["전라남도", "전남"]],
-  ["경상북도", ["경상북도", "경북"]], ["경상남도", ["경상남도", "경남"]],
-  ["제주특별자치도", ["제주특별자치도", "제주"]],
-];
-
-function resolveFacilityRegion(facilityCode?: string | null, facilityName?: string | null) {
-  const prefix = facilityCode?.split("-")[0]?.toUpperCase();
-  if (prefix && SEOUL_AGENCY_PREFIXES.has(prefix)) return "서울특별시";
-  for (const [region, aliases] of REGION_ALIASES) {
-    if (aliases.some((alias) => facilityName?.includes(alias))) return region;
-  }
-  return "지역 미등록";
-}
 
 export function NoticesPanel() {
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -106,7 +82,7 @@ export function NoticesPanel() {
           [sessionFacilityId]: isCareFacilityMember ? "NURSING_HOME" : "MUNICIPALITY",
         });
         setFacilityRegions({
-          [sessionFacilityId]: resolveFacilityRegion(
+          [sessionFacilityId]: resolveAdminRegion(
             isCareFacilityMember ? session?.careFacilityCode : session?.facilityCode,
             sessionFacilityName,
           ),
@@ -119,14 +95,14 @@ export function NoticesPanel() {
             setFacilityTypes(Object.fromEntries(rows.map((facility) => [facility.facility_id, facility.facility_type])));
             setFacilityRegions(Object.fromEntries(rows.map((facility) => [
               facility.facility_id,
-              resolveFacilityRegion(facility.facility_code, facility.name),
+              resolveAdminRegion(facility.facility_code, facility.name, facility.department),
             ])));
             setAvailableFacilities(
               rows.map((facility) => ({
                 facilityId: facility.facility_id,
                 facilityName: facility.name,
                 facilityType: facility.facility_type,
-                region: resolveFacilityRegion(facility.facility_code, facility.name),
+                region: resolveAdminRegion(facility.facility_code, facility.name, facility.department),
               })),
             );
           })

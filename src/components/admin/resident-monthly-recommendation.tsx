@@ -22,6 +22,7 @@ import {
 import type { ResidentDetail } from "@/lib/admin-resident-detail";
 import type { Resident } from "@/lib/admin-residents";
 import { DEMO_RESIDENT_ID } from "@/lib/admin-residents";
+import { recommendationForDate } from "@/lib/admin-recommendation-date";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const MEAL_TYPES = [
@@ -36,12 +37,6 @@ function getMonthKey(date: Date) {
 
 function dateKey(month: Date, day: number) {
   return `${getMonthKey(month)}-${String(day).padStart(2, "0")}`;
-}
-
-function isDateInWeek(date: string, weekStart: string) {
-  const target = Date.parse(`${date}T00:00:00Z`);
-  const start = Date.parse(`${weekStart}T00:00:00Z`);
-  return target >= start && target < start + 7 * 86_400_000;
 }
 
 type NutritionTotal = { kcal: number; protein: number; sodium: number; carbs: number };
@@ -94,9 +89,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
   const selectedMealEntry = selectedDay?.meals.find((meal) => meal.meal_type === selectedMeal);
   const selectedItems = selectedMealEntry?.items ?? [];
   const selectedStaple = selectedMealEntry?.staple ?? null;
-  const selectedTargets = selectedDate
-    ? monthly?.weeks.find((week) => isDateInWeek(selectedDate, week.week_start_date))?.recommendation
-    : null;
+  const selectedTargets = selectedDate ? recommendationForDate(monthly, selectedDate) : null;
   const selectedDayItems = selectedDay?.meals.flatMap((meal) => meal.items) ?? [];
   const selectedDayStaples = selectedDay?.meals.flatMap((meal) => meal.staple ? [meal.staple] : []) ?? [];
   const selectedReviewStatus = selectedDay?.review_status ?? "pending";
