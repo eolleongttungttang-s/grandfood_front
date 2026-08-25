@@ -9,6 +9,7 @@ import { getJson } from "@/lib/api";
 import { readAdminSession, type AdminSession } from "@/lib/admin-auth";
 import type { WardSummary } from "@/lib/admin-wards-api";
 import type { CareFacility } from "@/lib/statistics-mock";
+import { resolveAdminRegion } from "@/lib/admin-region";
 
 type FacilityApiResponse = {
   facility_id: string;
@@ -23,6 +24,7 @@ const facilityTypeLabels: Record<FacilityApiResponse["facility_type"], CareFacil
   NURSING_HOME: "요양원",
   WELFARE_CENTER: "사회복지기관",
 };
+
 
 function facilitiesVisibleToSession(
   facilities: FacilityApiResponse[],
@@ -83,27 +85,30 @@ function mapDatabaseFacilities(
   return facilities
     .filter((facility) => facility.facility_type !== "MUNICIPALITY")
     .map((facility) => {
-    const parentMunicipality =
-      facility.facility_type === "MUNICIPALITY"
-        ? facility
-        : municipalities.find((candidate) =>
-            facility.facility_code.startsWith(`${candidate.facility_code}-`),
-          );
+      const parentMunicipality = municipalities.find((candidate) =>
+        facility.facility_code.startsWith(`${candidate.facility_code}-`),
+      );
 
-    return {
-      id: facility.facility_id,
-      region: facility.department ?? parentMunicipality?.department ?? "미등록",
-      municipality: parentMunicipality?.name ?? "미등록",
-      municipalityCode: parentMunicipality?.facility_code ?? facility.facility_code,
-      name: facility.name,
-      type: facilityTypeLabels[facility.facility_type],
-      residents: residentCounts.get(facility.facility_code) ?? 0,
-      mealRecordRate: 0,
-      averageIntakeRate: 0,
-      lowIntakeResidents: 0,
-      unresolvedAlerts: 0,
-    };
-  });
+      return {
+        id: facility.facility_id,
+        region: resolveAdminRegion(
+          parentMunicipality?.facility_code ?? facility.facility_code,
+          parentMunicipality?.name,
+          parentMunicipality?.department,
+          facility.name,
+          facility.department,
+        ),
+        municipality: parentMunicipality?.name ?? "미등록",
+        municipalityCode: parentMunicipality?.facility_code ?? facility.facility_code,
+        name: facility.name,
+        type: facilityTypeLabels[facility.facility_type],
+        residents: residentCounts.get(facility.facility_code) ?? 0,
+        mealRecordRate: 0,
+        averageIntakeRate: 0,
+        lowIntakeResidents: 0,
+        unresolvedAlerts: 0,
+      };
+    });
 }
 
 export function DatabaseStatisticsDashboard() {
@@ -154,7 +159,7 @@ export function DatabaseStatisticsDashboard() {
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
       <PageHeader
-        title="통합 급식 모니터링"
+        title="통합 모니터링"
         description="DB에 등록된 기관과 대상자 정보를 불러오고 있습니다."
       />
       <Card>

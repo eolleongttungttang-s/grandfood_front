@@ -25,6 +25,21 @@ export const ACTIVITY_LEVEL_OPTIONS = [
 ] as const;
 
 export type ActivityLevel = (typeof ACTIVITY_LEVEL_OPTIONS)[number]["value"];
+
+export function getActivityLevelLabel(value: string): string {
+  return ACTIVITY_LEVEL_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
+export const MOBILITY_LEVEL_OPTIONS = [
+  { label: "독립 보행", value: "independent" },
+  { label: "보행 도움 필요", value: "needs_assistance" },
+  { label: "와상", value: "bedridden" },
+] as const;
+
+export function getMobilityLevelLabel(value: string): string {
+  return MOBILITY_LEVEL_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
 export type FoodRuleType = "allergy" | "dislike" | "restriction";
 
 export type WardFoodRuleInput = {

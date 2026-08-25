@@ -6,6 +6,7 @@ import { ArrowUpDown, Download, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  DEMO_RESIDENT_ID,
   Resident,
   RiskLevel,
 } from "@/lib/admin-residents";
@@ -335,7 +336,11 @@ export function ResidentsTable({
               <TableRow
                 key={r.id}
                 className="cursor-pointer"
-                onClick={() => router.push(`/admin/residents/${r.id}`)}
+                onClick={() => router.push(
+                  r.id === DEMO_RESIDENT_ID && r.facilityCode
+                    ? `/admin/residents/${r.id}?facilityCode=${encodeURIComponent(r.facilityCode)}${r.facilityName ? `&facilityName=${encodeURIComponent(r.facilityName)}` : ""}`
+                    : `/admin/residents/${r.id}`,
+                )}
               >
                 <TableCell className="text-muted-foreground">{r.displayId ?? r.id}</TableCell>
                 <TableCell className="font-semibold text-foreground">

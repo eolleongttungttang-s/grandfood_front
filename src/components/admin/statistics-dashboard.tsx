@@ -138,7 +138,7 @@ export function StatisticsDashboard({
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
       <PageHeader
-        title="통합 급식 모니터링"
+        title="통합 모니터링(예시)"
         description={`${scopeLabel} 범위의 요양원·복지기관 식사 기록과 건강 이상 징후를 확인합니다.`}
         action={<Badge variant="secondary">오늘 14:30 기준</Badge>}
       />

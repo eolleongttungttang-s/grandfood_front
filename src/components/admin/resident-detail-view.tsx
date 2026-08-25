@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, Pencil, UserRoundPen, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { Resident } from "@/lib/admin-residents";
+import { DEMO_RESIDENT_ID, Resident } from "@/lib/admin-residents";
 import { ResidentDetail } from "@/lib/admin-resident-detail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MealImageUpload } from "@/components/admin/meal-image-upload";
 import { ResidentIntakeHistory } from "@/components/admin/resident-intake-history";
 import { ResidentMonthlyRecommendation } from "@/components/admin/resident-monthly-recommendation";
+import { GrandFoodLogo } from "@/components/brand/grandfood-logo";
 import {
   updateFacilityWardHealthProfile,
   updateFacilityWardBasicInfo,
@@ -23,6 +24,8 @@ import {
 import {
   ACTIVITY_LEVEL_OPTIONS,
   CONDITION_OPTIONS,
+  getActivityLevelLabel,
+  getMobilityLevelLabel,
   makeFoodRules,
   type ActivityLevel,
 } from "@/lib/admin-ward-registration";
@@ -55,6 +58,7 @@ export function ResidentDetailView({
   const [basicEditOpen, setBasicEditOpen] = useState(false);
   const [residentView, setResidentView] = useState(resident);
   const [saving, setSaving] = useState(false);
+  const isDemo = resident.id === DEMO_RESIDENT_ID;
 
   async function saveMedicalInfo(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -216,33 +220,24 @@ export function ResidentDetailView({
                 {residentView.name}
               </span>
               <Badge className={RISK_BADGE_CLASS[resident.risk]}>{resident.risk}</Badge>
+              {isDemo && <Badge variant="secondary">데이터 축적 예시</Badge>}
               {detail.livingAlone && <Badge variant="outline">독거</Badge>}
             </div>
             <span className="text-sm text-muted-foreground">
               {residentView.age}세 · {residentView.gender} · {residentView.address ?? residentView.dong} · 담당{" "}
               {residentView.caseWorker ?? detail.caseWorker}
             </span>
+            {isDemo && residentView.facilityCode && (
+              <span className="text-sm text-muted-foreground">DB 소속 기관 {residentView.facilityName ?? "기관명 미확인"} · {residentView.facilityCode}</span>
+            )}
             <span className="text-sm text-muted-foreground">
               보호자 {residentView.guardianName} {residentView.guardianPhone} · 앱 연동됨
             </span>
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setBasicEditOpen(true)}>
+          <Button variant="outline" size="sm" disabled={isDemo} onClick={() => setBasicEditOpen(true)}>
             <UserRoundPen /> 기본정보 수정
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => toast.success(`${resident.name}님 방문을 요청했어요.`)}
-          >
-            방문 요청
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => toast.success(`${resident.name}님 긴급 확인이 배정됐어요.`)}
-          >
-            긴급 확인 배정
           </Button>
         </div>
       </div>
@@ -267,17 +262,14 @@ export function ResidentDetailView({
       </nav>
 
       <div id="meal-analysis" className="scroll-mt-24">
-        <MealImageUpload
-          residentId={resident.id}
-          residentName={residentView.name}
-        />
+        <MealImageUpload residentId={resident.id} residentName={residentView.name} uploadDisabled={isDemo} />
       </div>
 
       <div id="health-profile" className="grid scroll-mt-24 gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-foreground">추천 건강 프로필</h2>
-            <Button type="button" variant="outline" size="sm" onClick={() => setHealthEditOpen(true)}>
+            <Button type="button" variant="outline" size="sm" disabled={isDemo} onClick={() => setHealthEditOpen(true)}>
               <Pencil /> 수정
             </Button>
           </div>
@@ -288,14 +280,22 @@ export function ResidentDetailView({
           <DetailRow label="성별">{resident.gender}</DetailRow>
           <DetailRow label="키">{detail.checkup.heightCm ?? "-"} cm</DetailRow>
           <DetailRow label="체중">{detail.checkup.weightKg} kg</DetailRow>
-          <DetailRow label="평소 활동량">{detail.checkup.activityLevel}</DetailRow>
+          <DetailRow label="평소 활동량">
+            {detail.checkup.activityLevel === "-"
+              ? "-"
+              : getActivityLevelLabel(String(detail.checkup.activityLevel))}
+          </DetailRow>
           <DetailRow label="하루 식사 횟수">
             {detail.mealsPerDay === "-" ? "-" : `${detail.mealsPerDay}회`}
           </DetailRow>
           <DetailRow label="씹기 어려움">
             {detail.chewingDifficulty === null ? "-" : detail.chewingDifficulty ? "있음" : "없음"}
           </DetailRow>
-          <DetailRow label="거동 상태">{detail.mobilityLevel}</DetailRow>
+          <DetailRow label="거동 상태">
+            {detail.mobilityLevel === "-"
+              ? "-"
+              : getMobilityLevelLabel(String(detail.mobilityLevel))}
+          </DetailRow>
           <p className="rounded-lg bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
             혈압·혈당 원시 수치는 현재 추천 프로필 API에 포함되지 않아 표시하지 않습니다.
           </p>
@@ -377,8 +377,16 @@ export function ResidentDetailView({
       </div>
 
       <div id="intake-history" className="scroll-mt-24">
-        <ResidentIntakeHistory residentId={resident.id} />
+        <ResidentIntakeHistory residentId={resident.id} residentName={residentView.name} registeredAt={resident.registeredAt} />
       </div>
+
+      <footer className="flex justify-center border-t border-border/60 py-11">
+        <GrandFoodLogo
+          className="opacity-70"
+          markClassName="h-12 w-12"
+          wordmarkClassName="text-xl font-extrabold text-muted-foreground"
+        />
+      </footer>
 
       {editOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">

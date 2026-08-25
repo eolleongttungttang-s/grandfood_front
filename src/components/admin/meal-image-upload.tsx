@@ -18,6 +18,12 @@ import {
 } from "@/components/ui/select";
 import { readAdminSession } from "@/lib/admin-auth";
 import { extractErrorMessage, getApiUrl } from "@/lib/api";
+import {
+  fetchMonthlyRecommendation,
+  type FacilityMealType,
+  type MonthlyRecommendation,
+} from "@/lib/admin-monthly-recommendation-api";
+import { recommendationForDate } from "@/lib/admin-recommendation-date";
 
 type MealImage = {
   file: File;
@@ -26,7 +32,7 @@ type MealImage = {
 
 type DishAnalysis = {
   name: string;
-  consumedPercent: number;
+  consumedPercent: number | null;
   description: string;
 };
 
@@ -72,12 +78,42 @@ function getCurrentMealSlot() {
   return "저녁";
 }
 
+const MEAL_SLOT_TYPE: Record<string, FacilityMealType> = {
+  아침: "breakfast",
+  점심: "lunch",
+  저녁: "dinner",
+};
+
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function localMonthKey(date = new Date()) {
+  return localDateKey(date).slice(0, 7);
+}
+
 function intakeDescription(percent: number) {
   if (percent >= 90) return "거의 모두 섭취했습니다.";
   if (percent >= 70) return "대부분 섭취했습니다.";
   if (percent >= 50) return "절반 이상 섭취했습니다.";
   if (percent > 0) return "섭취량이 절반보다 적습니다.";
   return "섭취하지 않았습니다.";
+}
+
+function normalizeMenuName(name: string) {
+  return name.replace(/\s+/g, "").toLowerCase();
+}
+
+function includeUnmeasuredMenuItems(detected: DishAnalysis[], menuNames: string[]) {
+  const detectedNames = new Set(detected.map((dish) => normalizeMenuName(dish.name)));
+  const unmeasured = menuNames
+    .filter((name) => !detectedNames.has(normalizeMenuName(name)))
+    .map((name): DishAnalysis => ({
+      name,
+      consumedPercent: null,
+      description: "메뉴에는 포함되어 있지만 사진에서 섭취량을 판독하지 못했습니다.",
+    }));
+  return [...detected, ...unmeasured];
 }
 
 type ImageSlotProps = {
@@ -88,6 +124,7 @@ type ImageSlotProps = {
   onChange: (file: File) => void;
   onRemove: () => void;
   title: string;
+  uploadDisabled?: boolean;
 };
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
@@ -112,11 +149,13 @@ function ImageSlot({
   onChange,
   onRemove,
   title,
+  uploadDisabled = false,
 }: ImageSlotProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const validateAndChange = async (file?: File) => {
+    if (uploadDisabled) return;
     if (!file) return;
     if (!file.type.startsWith("image/") && !isHeicImage(file)) {
       toast.error("이미지 파일만 업로드할 수 있어요.");
@@ -151,6 +190,7 @@ function ImageSlot({
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
+    if (uploadDisabled) return;
     void validateAndChange(event.dataTransfer.files?.[0]);
   };
 
@@ -186,6 +226,7 @@ function ImageSlot({
         type="file"
         accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
         onChange={handleInputChange}
+        disabled={uploadDisabled}
       />
 
       {image ? (
@@ -216,21 +257,23 @@ function ImageSlot({
           role="button"
           tabIndex={0}
           aria-label={`${title} 업로드`}
-          className={`flex aspect-[16/9] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 text-center transition-colors ${
+          className={`flex aspect-[16/9] flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 text-center transition-colors ${uploadDisabled ? "cursor-not-allowed opacity-65" : "cursor-pointer"} ${
             isDragging
               ? "border-foreground bg-muted"
               : "border-border bg-muted/35 hover:border-muted-foreground/50 hover:bg-muted/70"
           }`}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => {
+            if (!uploadDisabled) inputRef.current?.click();
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              inputRef.current?.click();
+              if (!uploadDisabled) inputRef.current?.click();
             }
           }}
           onDragEnter={(event) => {
             event.preventDefault();
-            setIsDragging(true);
+            if (!uploadDisabled) setIsDragging(true);
           }}
           onDragOver={(event) => event.preventDefault()}
           onDragLeave={() => setIsDragging(false)}
@@ -239,8 +282,8 @@ function ImageSlot({
           <div className="mb-3 rounded-full border border-border bg-card p-3 shadow-sm">
             <ImagePlus className="h-5 w-5 text-muted-foreground" />
           </div>
-          <span className="text-sm font-bold text-foreground">클릭하거나 사진을 끌어 놓으세요</span>
-          <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, WEBP, HEIC · 최대 10MB</span>
+          <span className="text-sm font-bold text-foreground">{uploadDisabled ? "예시 대상자는 사진 업로드가 비활성화되어 있습니다" : "클릭하거나 사진을 끌어 놓으세요"}</span>
+          <span className="mt-1 text-xs text-muted-foreground">{uploadDisabled ? "실제 대상자에서 이미지 분석을 이용할 수 있습니다." : "JPG, PNG, WEBP, HEIC · 최대 10MB"}</span>
         </div>
       )}
     </div>
@@ -250,9 +293,11 @@ function ImageSlot({
 export function MealImageUpload({
   residentId,
   residentName,
+  uploadDisabled = false,
 }: {
   residentId: string;
   residentName: string;
+  uploadDisabled?: boolean;
 }) {
   const [beforeImage, setBeforeImage] = useState<MealImage | null>(null);
   const [afterImage, setAfterImage] = useState<MealImage | null>(null);
@@ -262,6 +307,17 @@ export function MealImageUpload({
   const [pendingAnalysisMealId, setPendingAnalysisMealId] = useState<string | null>(null);
   const [analysisTimedOut, setAnalysisTimedOut] = useState(false);
   const [mealSlot, setMealSlot] = useState(getCurrentMealSlot);
+  const [todayRecommendation, setTodayRecommendation] = useState<MonthlyRecommendation | null>(null);
+  const [recommendationLoading, setRecommendationLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMonthlyRecommendation(residentId, localMonthKey())
+      .then((result) => { if (!cancelled) setTodayRecommendation(result); })
+      .catch(() => { if (!cancelled) setTodayRecommendation(null); })
+      .finally(() => { if (!cancelled) setRecommendationLoading(false); });
+    return () => { cancelled = true; };
+  }, [residentId]);
 
   useEffect(() => {
     const previewUrl = beforeImage?.previewUrl;
@@ -285,13 +341,23 @@ export function MealImageUpload({
   };
 
   const canAnalyze = Boolean(beforeImage && afterImage && mealSlot);
+  const todayKey = localDateKey();
+  const selectedMealType = MEAL_SLOT_TYPE[mealSlot];
+  const selectedRecommendationMeal = todayRecommendation?.days
+    ?.find((day) => day.service_date === todayKey)
+    ?.meals.find((meal) => meal.meal_type === selectedMealType) ?? null;
+  const selectedMenuNames = [
+    ...(selectedRecommendationMeal?.staple ? [selectedRecommendationMeal.staple.name] : []),
+    ...(selectedRecommendationMeal?.items.map((item) => item.name) ?? []),
+  ];
+  const recommendationId = recommendationForDate(todayRecommendation, todayKey)?.id ?? null;
 
-  const fetchAnalysisResult = async (mealId: string, accessToken?: string) => {
+  const fetchAnalysisResult = async (mealId: string, accessToken: string) => {
     for (let attempt = 0; attempt < ANALYSIS_POLL_MAX_ATTEMPTS; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, ANALYSIS_POLL_INTERVAL_MS));
       const response = await fetch(
         `${getApiUrl()}/app/elder/${encodeURIComponent(residentId)}/diet-history?days=1`,
-        { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined },
+        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
       const result = (await response.json().catch(() => null)) as
         | DietHistoryResponse
@@ -307,7 +373,7 @@ export function MealImageUpload({
         (item) => item.meal_id === mealId,
       );
       if (match?.dishes?.length) {
-        return match.dishes.map((dish) => {
+        const detected = match.dishes.map((dish) => {
           const consumedPercent = Math.max(0, Math.min(100, Math.round(100 - dish.leftover_pct)));
           return {
             name: dish.banchan_name ?? "반찬",
@@ -315,15 +381,16 @@ export function MealImageUpload({
             description: intakeDescription(consumedPercent),
           };
         });
+        return includeUnmeasuredMenuItems(detected, selectedMenuNames);
       }
     }
     return null;
   };
 
-  const fetchNutritionSummary = async (accessToken?: string) => {
+  const fetchNutritionSummary = async (accessToken: string) => {
     const response = await fetch(
       `${getApiUrl()}/app/elder/${encodeURIComponent(residentId)}/nutrition-gaps?days=1`,
-      { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined },
+      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!response.ok) return null;
     const result = (await response.json()) as NutritionGapsResponse;
@@ -335,13 +402,17 @@ export function MealImageUpload({
     setIsAnalyzing(true);
     setAnalysisTimedOut(false);
     try {
+      const accessToken = readAdminSession()?.accessToken;
+      if (!accessToken) {
+        throw new Error("관리자 로그인 토큰이 없습니다. 로그아웃 후 다시 로그인해 주세요.");
+      }
       const result = await fetchAnalysisResult(
         pendingAnalysisMealId,
-        readAdminSession()?.accessToken,
+        accessToken,
       );
       if (result) {
         setAnalysisResult(result);
-        setNutritionSummary(await fetchNutritionSummary(readAdminSession()?.accessToken));
+        setNutritionSummary(await fetchNutritionSummary(accessToken));
         setPendingAnalysisMealId(null);
         toast.success("GPU 잔반 분석이 완료됐어요.");
       } else {
@@ -373,18 +444,19 @@ export function MealImageUpload({
       formData.append("mealSlot", mealSlot);
       formData.append(
         "comboId",
-        `AUTO-${new Date().toISOString().slice(0, 10)}-${mealSlot}`,
+        recommendationId ?? `AUTO-${todayKey}-${mealSlot}`,
       );
       formData.append("beforePhoto", beforeImage.file);
       formData.append("afterPhoto", afterImage.file);
       const accessToken = readAdminSession()?.accessToken;
+      if (!accessToken) {
+        throw new Error("관리자 로그인 토큰이 없습니다. 로그아웃 후 다시 로그인해 주세요.");
+      }
       const response = await fetch(
         `${getApiUrl()}/wards/${encodeURIComponent(residentId)}/meal-logs`,
         {
           method: "POST",
-          headers: accessToken
-            ? { Authorization: `Bearer ${accessToken}` }
-            : undefined,
+          headers: { Authorization: `Bearer ${accessToken}` },
           body: formData,
         },
       );
@@ -399,11 +471,17 @@ export function MealImageUpload({
         throw new Error("이미지는 저장됐지만 분석할 식사 ID를 받지 못했습니다.");
       }
       setPendingAnalysisMealId(result.id);
+      window.dispatchEvent(new CustomEvent("grandfood:meal-log-updated", {
+        detail: { residentId },
+      }));
       const analysis = await fetchAnalysisResult(result.id, accessToken);
       if (analysis) {
         setAnalysisResult(analysis);
         setNutritionSummary(await fetchNutritionSummary(accessToken));
         setPendingAnalysisMealId(null);
+        window.dispatchEvent(new CustomEvent("grandfood:meal-log-updated", {
+          detail: { residentId },
+        }));
         toast.success("이미지 저장과 GPU 잔반 분석이 완료됐어요.");
       } else {
         setAnalysisTimedOut(true);
@@ -432,7 +510,7 @@ export function MealImageUpload({
         </div>
         <Button
           type="button"
-          disabled={!canAnalyze || isAnalyzing}
+          disabled={uploadDisabled || !canAnalyze || isAnalyzing}
           onClick={analyzeImages}
         >
           <Sparkles className="h-4 w-4" />
@@ -453,6 +531,18 @@ export function MealImageUpload({
               <SelectItem value="저녁">저녁</SelectItem>
             </SelectContent>
           </Select>
+          <div className="rounded-lg border border-border bg-background px-3 py-2.5">
+            <p className="text-xs font-semibold text-muted-foreground">{todayKey} {mealSlot} 분석 기준 식단</p>
+            {recommendationLoading ? (
+              <p className="mt-1 text-sm text-muted-foreground">추천 식단을 확인하는 중입니다.</p>
+            ) : selectedMenuNames.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {selectedMenuNames.map((name) => <Badge key={name} variant="secondary">{name}</Badge>)}
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-amber-700">이 날짜와 끼니에 저장된 추천 식단이 없습니다. GPU는 일반 분석으로 진행됩니다.</p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -465,6 +555,7 @@ export function MealImageUpload({
           inputId="meal-before-image"
           onChange={(file) => replaceImage(file, setBeforeImage)}
           onRemove={() => setBeforeImage(null)}
+          uploadDisabled={uploadDisabled}
         />
         <ImageSlot
           badge="AFTER"
@@ -474,6 +565,7 @@ export function MealImageUpload({
           inputId="meal-after-image"
           onChange={(file) => replaceImage(file, setAfterImage)}
           onRemove={() => setAfterImage(null)}
+          uploadDisabled={uploadDisabled}
         />
       </div>
 
@@ -501,18 +593,19 @@ export function MealImageUpload({
                     <p className="text-xs text-muted-foreground">반찬별 예상 섭취 비율입니다.</p>
                   </div>
                 </div>
-                <span className="rounded-full bg-foreground px-3 py-1 text-sm font-bold text-background">
-                  평균 {Math.round(analysisResult.reduce((sum, dish) => sum + dish.consumedPercent, 0) / analysisResult.length)}% 섭취
-                </span>
+                {(() => {
+                  const measured = analysisResult.filter((dish): dish is DishAnalysis & { consumedPercent: number } => dish.consumedPercent !== null);
+                  return measured.length > 0 ? <span className="rounded-full bg-foreground px-3 py-1 text-sm font-bold text-background">평균 {Math.round(measured.reduce((sum, dish) => sum + dish.consumedPercent, 0) / measured.length)}% 섭취</span> : <Badge variant="outline">판독 결과 없음</Badge>;
+                })()}
               </div>
               <div className="grid gap-4 p-5 sm:grid-cols-2">
                 {analysisResult.map((dish) => (
                   <div key={dish.name} className="rounded-lg border border-border p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <span className="font-bold text-foreground">{dish.name}</span>
-                      <span className="text-sm font-extrabold text-foreground">{dish.consumedPercent}%</span>
+                      <span className="text-sm font-extrabold text-foreground">{dish.consumedPercent === null ? "분석 불가" : `${dish.consumedPercent}%`}</span>
                     </div>
-                    <Progress value={dish.consumedPercent} />
+                    <Progress value={dish.consumedPercent ?? 0} />
                     <p className="mt-2 text-xs text-muted-foreground">{dish.description}</p>
                   </div>
                 ))}

@@ -21,10 +21,14 @@ export type AdminSession = {
   careFacilityCode?: string;
   facilityType?: string;
   role?: string;
+  frontendExpiresAt?: number;
 };
 
 export function createAdminSession(session: AdminSession) {
-  return JSON.stringify(session);
+  return JSON.stringify({
+    ...session,
+    frontendExpiresAt: session.frontendExpiresAt ?? Date.now() + 60 * 60 * 1000,
+  });
 }
 
 export function getAdminOrganizationName(session: AdminSession | null) {

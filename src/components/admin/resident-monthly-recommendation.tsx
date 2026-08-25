@@ -21,6 +21,8 @@ import {
 } from "@/lib/admin-monthly-recommendation-api";
 import type { ResidentDetail } from "@/lib/admin-resident-detail";
 import type { Resident } from "@/lib/admin-residents";
+import { DEMO_RESIDENT_ID } from "@/lib/admin-residents";
+import { recommendationForDate } from "@/lib/admin-recommendation-date";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const MEAL_TYPES = [
@@ -35,12 +37,6 @@ function getMonthKey(date: Date) {
 
 function dateKey(month: Date, day: number) {
   return `${getMonthKey(month)}-${String(day).padStart(2, "0")}`;
-}
-
-function isDateInWeek(date: string, weekStart: string) {
-  const target = Date.parse(`${date}T00:00:00Z`);
-  const start = Date.parse(`${weekStart}T00:00:00Z`);
-  return target >= start && target < start + 7 * 86_400_000;
 }
 
 type NutritionTotal = { kcal: number; protein: number; sodium: number; carbs: number };
@@ -68,11 +64,17 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
   const [catalog, setCatalog] = useState<DishCatalogItem[]>([]);
   const [replacing, setReplacing] = useState(false);
   const [reviewUpdating, setReviewUpdating] = useState(false);
+  const isDemo = resident.id === DEMO_RESIDENT_ID;
   const monthKey = getMonthKey(month);
   const days = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
     const last = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-    return [...Array.from({ length: first }, () => null), ...Array.from({ length: last }, (_, index) => index + 1)];
+    const calendarDays = [
+      ...Array.from({ length: first }, () => null),
+      ...Array.from({ length: last }, (_, index) => index + 1),
+    ];
+    const trailingEmptyCount = (7 - (calendarDays.length % 7)) % 7;
+    return [...calendarDays, ...Array.from({ length: trailingEmptyCount }, () => null)];
   }, [month]);
   const printableWeeks = useMemo(() => {
     const recommendationDays = monthly?.days ?? [];
@@ -87,9 +89,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
   const selectedMealEntry = selectedDay?.meals.find((meal) => meal.meal_type === selectedMeal);
   const selectedItems = selectedMealEntry?.items ?? [];
   const selectedStaple = selectedMealEntry?.staple ?? null;
-  const selectedTargets = selectedDate
-    ? monthly?.weeks.find((week) => isDateInWeek(selectedDate, week.week_start_date))?.recommendation
-    : null;
+  const selectedTargets = selectedDate ? recommendationForDate(monthly, selectedDate) : null;
   const selectedDayItems = selectedDay?.meals.flatMap((meal) => meal.items) ?? [];
   const selectedDayStaples = selectedDay?.meals.flatMap((meal) => meal.staple ? [meal.staple] : []) ?? [];
   const selectedReviewStatus = selectedDay?.review_status ?? "pending";
@@ -203,9 +203,9 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
             <Printer />
             식단표 출력
           </Button>
-          <Button size="sm" onClick={generate} disabled={loading || requesting || isGenerating}>
+          <Button size="sm" onClick={generate} disabled={isDemo || loading || requesting || isGenerating}>
             {requesting || isGenerating ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
-            {requesting || isGenerating ? "생성 중..." : hasRecommendations ? "다시 생성" : "월간 추천 생성"}
+            {isDemo ? "예시 식단" : requesting || isGenerating ? "생성 중..." : hasRecommendations ? "다시 생성" : "월간 추천 생성"}
           </Button>
         </div>
       </div>
@@ -223,7 +223,7 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
               const apiDay = key ? monthly?.days?.find((item) => item.service_date === key) : null;
               const mealCount = apiDay?.meals.filter((meal) => meal.items.length > 0).length ?? 0;
               const reviewStatus = apiDay?.review_status ?? "pending";
-              return <button key={`${day ?? "empty"}-${index}`} type="button" disabled={!day} onClick={() => { if (key) { setSelectedDate(key); setSelectedMeal("breakfast"); } }} className={`min-h-16 border-t border-r p-1.5 text-left text-xs ${day ? "hover:bg-muted/50" : "bg-muted/20"} ${selectedDate === key ? "bg-primary/10 ring-2 ring-inset ring-primary" : ""}`}>{day && <><span className="font-bold">{day}</span>{mealCount > 0 && <p className="mt-1 truncate text-[10px] text-emerald-700">{mealCount}식 추천</p>}{mealCount > 0 && <p className={`mt-0.5 truncate text-[10px] font-semibold ${reviewStatus === "confirmed" ? "text-blue-700" : reviewStatus === "rejected" ? "text-amber-700" : "text-muted-foreground"}`}>{reviewStatus === "confirmed" ? "검수 완료" : reviewStatus === "rejected" ? "수정 필요" : "검수 대기"}</p>}</>}</button>;
+              return <button key={`${day ?? "empty"}-${index}`} type="button" disabled={!day} onClick={() => { if (key) { setSelectedDate(key); setSelectedMeal("breakfast"); } }} className={`min-h-16 border-b border-r p-1.5 text-left text-xs ${day ? "hover:bg-muted/50" : "bg-muted/20"} ${selectedDate === key ? "bg-primary/10 ring-2 ring-inset ring-primary" : ""}`}>{day && <><span className="font-bold">{day}</span>{mealCount > 0 && <p className="mt-1 truncate text-[10px] text-emerald-700">{mealCount}식 추천</p>}{mealCount > 0 && <p className={`mt-0.5 truncate text-[10px] font-semibold ${reviewStatus === "confirmed" ? "text-blue-700" : reviewStatus === "rejected" ? "text-amber-700" : "text-muted-foreground"}`}>{reviewStatus === "confirmed" ? "검수 완료" : reviewStatus === "rejected" ? "수정 필요" : "검수 대기"}</p>}</>}</button>;
             })}
           </div>
         </div>
@@ -276,8 +276,22 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
           </div>
         </div>
       )}
-      {selectedItems.length > 0 && (
-        <div className="grid gap-3 md:grid-cols-3">
+      {(selectedStaple || selectedItems.length > 0) && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {selectedStaple && (
+            <article className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div><h3 className="font-extrabold">{selectedStaple.name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{selectedStaple.category}</p></div>
+                <Badge variant="secondary">기본 주식</Badge>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <span className="rounded-md bg-muted px-2 py-1.5">열량 <strong>{selectedStaple.calorie_per_100g ?? "-"}{selectedStaple.calorie_per_100g == null ? "" : "kcal/100g"}</strong></span>
+                <span className="rounded-md bg-muted px-2 py-1.5">단백질 <strong>{selectedStaple.protein_per_100g ?? "-"}{selectedStaple.protein_per_100g == null ? "" : "g"}</strong></span>
+                <span className="rounded-md bg-muted px-2 py-1.5">나트륨 <strong>{selectedStaple.sodium_per_100g ?? "-"}{selectedStaple.sodium_per_100g == null ? "" : "mg"}</strong></span>
+                <span className="rounded-md bg-muted px-2 py-1.5">탄수화물 <strong>{selectedStaple.carbs_per_100g ?? "-"}{selectedStaple.carbs_per_100g == null ? "" : "g"}</strong></span>
+              </div>
+            </article>
+          )}
           {selectedItems.map((item) => (
             <article key={`${item.banchan_id}-nutrition`} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-start justify-between gap-3"><div><h3 className="font-extrabold">{item.name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{item.category}</p></div><div className="flex items-center gap-1"><Badge variant={item.suitability === "recommended" ? "secondary" : "outline"}>{item.suitability === "recommended" ? "추천" : item.suitability === "caution" ? "주의" : "피하기"}</Badge><Button type="button" size="icon-sm" variant="ghost" disabled={selectedReviewStatus === "confirmed"} onClick={() => void openSwap(item)} title={selectedReviewStatus === "confirmed" ? "검수 완료된 식단입니다" : "다른 반찬으로 교체"}><RefreshCw /><span className="sr-only">{item.name} 교체</span></Button></div></div>

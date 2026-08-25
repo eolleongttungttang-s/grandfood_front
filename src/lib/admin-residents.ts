@@ -1,5 +1,7 @@
 export type RiskLevel = "고위험" | "주의" | "보통";
 
+export const DEMO_RESIDENT_ID = "demo-accumulated-resident";
+
 export type Resident = {
   id: string;
   /** 기관별 화면 표시 번호. 백엔드 요청에는 id(UUID)를 사용한다. */
@@ -12,6 +14,9 @@ export type Resident = {
   gender: "여" | "남" | "미상";
   facilityCode?: string;
   facilityId?: string;
+  facilityName?: string;
+  /** 시설 대상자 등록 시각. 등록 전 날짜를 미섭취로 집계하지 않는 기준값. */
+  registeredAt?: string;
   address?: string;
   /** 기존 테스트 데이터 호환용 동 단위 주소 */
   dong: string;
@@ -26,7 +31,36 @@ export type Resident = {
   note: string;
 };
 
+export function createDemoResident(
+  base?: Partial<Pick<Resident, "facilityCode" | "facilityId" | "facilityName" | "address" | "dong">>,
+): Resident {
+  return {
+    id: DEMO_RESIDENT_ID,
+    displayId: "예시",
+    name: "김영희 (데이터 예시)",
+    age: 79,
+    gender: "여",
+    facilityCode: base?.facilityCode,
+    facilityId: base?.facilityId,
+    facilityName: base?.facilityName,
+    registeredAt: "2026-08-01T09:00:00+09:00",
+    address: base?.address ?? "서울특별시 마포구 월드컵로 212",
+    dong: base?.dong ?? "성산동",
+    condition: "고혈압 · 당뇨",
+    allergies: ["우유", "땅콩"],
+    medications: [{ name: "암로디핀 5mg", schedule: "1일 1회 아침" }],
+    lastResponse: "오늘 점심 82% 섭취",
+    lastResponseTone: "neutral",
+    risk: "주의",
+    guardianName: "김민수 (자녀)",
+    guardianPhone: "010-4821-73569",
+    caseWorker: "박지현 (사회복지사)",
+    note: "최근 일주일 아침 섭취량이 점심보다 낮아 관찰 중입니다.",
+  };
+}
+
 export const RESIDENTS: Resident[] = [
+  createDemoResident(),
   {
     id: "001",
     name: "박순자",

@@ -6,7 +6,8 @@ import { toast } from "sonner";
 
 import { ResidentsTable } from "@/components/admin/residents-table";
 import { fetchFacilityWards } from "@/lib/admin-wards-api";
-import { Resident, RiskLevel } from "@/lib/admin-residents";
+import { createDemoResident, Resident, RiskLevel } from "@/lib/admin-residents";
+import { getJson } from "@/lib/api";
 
 const VALID_RISK: RiskLevel[] = ["고위험", "주의", "보통"];
 
@@ -21,9 +22,21 @@ export default function AdminResidentsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchFacilityWards()
-      .then((wards) => {
-        if (!cancelled) setResidents(wards);
+    Promise.all([
+      fetchFacilityWards(),
+      getJson<Array<{ facility_id: string; facility_code: string; name: string; facility_type: string }>>("/api/admin/facilities").catch(() => []),
+    ])
+      .then(([wards, facilities]) => {
+        const baseWard = wards[0];
+        const careFacility = facilities.find((facility) =>
+          facility.facility_type !== "MUNICIPALITY" && facility.facility_code === baseWard?.facilityCode,
+        ) ?? facilities.find((facility) => facility.facility_type !== "MUNICIPALITY");
+        const demoResident = createDemoResident({
+          facilityCode: careFacility?.facility_code ?? baseWard?.facilityCode,
+          facilityId: careFacility?.facility_id ?? baseWard?.facilityId,
+          facilityName: careFacility?.name,
+        });
+        if (!cancelled) setResidents([...wards, demoResident]);
       })
       .catch((error) => {
         if (cancelled) return;
