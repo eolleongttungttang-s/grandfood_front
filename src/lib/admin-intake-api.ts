@@ -21,7 +21,7 @@ export function fetchDailyNutritionActuals(elderId: string, date: string) {
 
 export function nutrientActual(
   actuals: DailyNutritionActuals | null | undefined,
-  nutrientType: "calorie" | "protein" | "sodium",
+  nutrientType: "calorie" | "protein" | "sodium" | "carbs",
 ) {
   return actuals?.nutrients.find((item) => item.nutrient_type === nutrientType) ?? null;
 }

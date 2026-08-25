@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, LoaderCircle, Printer } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,15 @@ type DietDish = {
   banchan_id: string;
   banchan_name: string | null;
   leftover_pct: number;
+  confidence?: string | null;
+  status?: string | null;
+};
+
+type UnmeasuredDish = {
+  class_name: string | null;
+  banchan_name: string | null;
+  status: string | null;
+  reason: string | null;
 };
 
 type DietEntry = {
@@ -38,6 +48,8 @@ type DietEntry = {
   recorded: boolean;
   quick_check_status: string | null;
   dishes: DietDish[];
+  unmeasured?: UnmeasuredDish[];
+  warnings?: string[];
 };
 
 type DietHistoryResponse = { items: DietEntry[] };
@@ -155,6 +167,15 @@ function dayLabel(dateKey: string) {
   return `${weekday} ${Number(month)}/${Number(day)}`;
 }
 
+function unmeasuredDishLabel(dish: UnmeasuredDish, index: number) {
+  if (dish.banchan_name?.trim()) return dish.banchan_name;
+  if (dish.class_name?.startsWith("unknown#")) {
+    const unknownNumber = dish.class_name.slice("unknown#".length);
+    return `미확인 메뉴 ${unknownNumber || index + 1}`;
+  }
+  return dish.class_name?.trim() || `미확인 메뉴 ${index + 1}`;
+}
+
 function calculateNutrition(entries: DietEntry[], catalogById: Record<string, DishCatalogItem>) {
   return entries
     .flatMap((entry) => entry.dishes)
@@ -166,9 +187,10 @@ function calculateNutrition(entries: DietEntry[], catalogById: Record<string, Di
           calorie: total.calorie + (nutrition?.kcal ?? 0) * intakeRatio,
           protein: total.protein + (nutrition?.proteinG ?? 0) * intakeRatio,
           sodium: total.sodium + (nutrition?.sodiumMg ?? 0) * intakeRatio,
+          carbs: total.carbs,
         };
       },
-      { calorie: 0, protein: 0, sodium: 0 },
+      { calorie: 0, protein: 0, sodium: 0, carbs: 0 },
     );
 }
 
@@ -241,6 +263,7 @@ export function ResidentIntakeHistory({
   const [catalog, setCatalog] = useState<DishCatalogItem[]>([]);
   const [recommendationsByMonth, setRecommendationsByMonth] = useState<Record<string, MonthlyRecommendation>>({});
   const [nutritionActualsByDate, setNutritionActualsByDate] = useState<Record<string, DailyNutritionActuals>>({});
+  const [nutritionErrorsByDate, setNutritionErrorsByDate] = useState<Record<string, true>>({});
   const nutritionActualsCache = useRef<Record<string, DailyNutritionActuals>>({});
   const [activeTab, setActiveTab] = useState<"summary" | "history" | "nutrition">("history");
   const [historyRevision, setHistoryRevision] = useState(0);
@@ -253,6 +276,7 @@ export function ResidentIntakeHistory({
           if (key.startsWith(`${residentId}:`)) delete nutritionActualsCache.current[key];
         }
         setNutritionActualsByDate({});
+        setNutritionErrorsByDate({});
         setHistoryRevision((current) => current + 1);
       }
     };
@@ -294,6 +318,8 @@ export function ResidentIntakeHistory({
               completed: date < todayKey() || mealIndex === 0,
               recorded: date < todayKey() || mealIndex === 0,
               quick_check_status: null,
+              unmeasured: [],
+              warnings: [],
               dishes: Array.from({ length: 3 }, (_, dishIndex) => {
                 const dish = demoCatalog[(dateIndex * 9 + mealIndex * 3 + dishIndex) % Math.max(demoCatalog.length, 1)];
                 const result: DietDish | null = dish ? {
@@ -385,6 +411,15 @@ export function ResidentIntakeHistory({
       results.forEach((result, index) => {
         if (result) nutritionActualsCache.current[`${residentId}:${missingDates[index]}`] = result;
       });
+      setNutritionErrorsByDate((current) => {
+        const next = { ...current };
+        results.forEach((result, index) => {
+          const date = missingDates[index];
+          if (result) delete next[date];
+          else next[date] = true;
+        });
+        return next;
+      });
       setNutritionActualsByDate(Object.fromEntries(nutritionDates.flatMap((date) => {
         const item = nutritionActualsCache.current[`${residentId}:${date}`];
         return item ? [[date, item]] : [];
@@ -412,13 +447,19 @@ export function ResidentIntakeHistory({
       : await Promise.all(dates.map((date) =>
           fetchDailyNutritionActuals(residentId, date).catch(() => null),
         ));
+    if (residentId !== DEMO_RESIDENT_ID && reportActuals.some((actuals) => actuals === null)) {
+      reportWindow.close();
+      toast.error("일부 날짜의 영양 섭취량을 불러오지 못해 리포트를 출력하지 않았습니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
     const reportNutrition = residentId === DEMO_RESIDENT_ID
       ? calculateNutrition(reportEntries, catalogById)
       : reportActuals.reduce((total, actuals) => ({
           calorie: total.calorie + (nutrientActual(actuals, "calorie")?.amount ?? 0),
           protein: total.protein + (nutrientActual(actuals, "protein")?.amount ?? 0),
           sodium: total.sodium + (nutrientActual(actuals, "sodium")?.amount ?? 0),
-        }), { calorie: 0, protein: 0, sodium: 0 });
+          carbs: total.carbs + (nutrientActual(actuals, "carbs")?.amount ?? 0),
+        }), { calorie: 0, protein: 0, sodium: 0, carbs: 0 });
     const reportMonths = await Promise.all(
       [...new Set(dates.map((date) => date.slice(0, 7)))].map((month) =>
         fetchMonthlyRecommendation(residentId, month).catch(() => null),
@@ -439,14 +480,18 @@ export function ResidentIntakeHistory({
       const sodiumTarget = residentId === DEMO_RESIDENT_ID
         ? recommendationTarget?.target_sodium_mg
         : nutrientActual(actuals, "sodium")?.target_amount ?? recommendationTarget?.target_sodium_mg;
-      const hasTargets = [calorieTarget, proteinTarget, sodiumTarget].every((target) => target != null);
+      const carbsTarget = residentId === DEMO_RESIDENT_ID
+        ? recommendationTarget?.target_carbs_g
+        : nutrientActual(actuals, "carbs")?.target_amount ?? recommendationTarget?.target_carbs_g;
+      const hasTargets = [calorieTarget, proteinTarget, sodiumTarget, carbsTarget].every((target) => target != null);
       return {
         calorie: total.calorie + (calorieTarget ?? 0),
         protein: total.protein + (proteinTarget ?? 0),
         sodium: total.sodium + (sodiumTarget ?? 0),
+        carbs: total.carbs + (carbsTarget ?? 0),
         availableDays: total.availableDays + Number(hasTargets),
       };
-    }, { calorie: 0, protein: 0, sodium: 0, availableDays: 0 });
+    }, { calorie: 0, protein: 0, sodium: 0, carbs: 0, availableDays: 0 });
     const metricValue = (value: number, target: number, unit: string) => {
       const hasTarget = reportTargets.availableDays === dates.length && target > 0;
       const rate = hasTarget ? Math.round((value / target) * 100) : null;
@@ -470,7 +515,7 @@ export function ResidentIntakeHistory({
       return `<tr><th>${escapeHtml(date)}</th>${cells.map((cell) => `<td>${cell}</td>`).join("")}<td>${rate == null ? "—" : `${rate}%`}</td></tr>`;
     }).join("");
     reportWindow.document.open();
-    reportWindow.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(residentName)} 섭취 분석 리포트</title><style>body{font-family:Arial,'Noto Sans KR',sans-serif;color:#211812;padding:30px}h1{text-align:center;margin:0 0 6px}.meta{text-align:center;color:#6b625d;margin-bottom:24px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}.card{border:1px solid #d8cec7;border-radius:10px;padding:12px}.label{font-size:12px;color:#776d67}.value{font-size:16px;font-weight:800;margin-top:5px;white-space:nowrap}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #bfb5ae;padding:9px;vertical-align:top}thead th{background:#f3ece7}tbody th{white-space:nowrap;background:#faf7f4}.note{margin-top:16px;color:#776d67;font-size:10px}@media print{body{padding:0}}</style></head><body><h1>${escapeHtml(residentName)} 섭취 분석 리포트</h1><p class="meta">${escapeHtml(startDate)} ~ ${escapeHtml(endDate)}</p><div class="summary"><div class="card"><div class="label">평균 섭취율</div><div class="value">${averageRate == null ? "—" : `${averageRate}%`}</div></div><div class="card"><div class="label">섭취 열량 / 기간 목표</div><div class="value">${metricValue(reportNutrition.calorie, reportTargets.calorie, "kcal")}</div></div><div class="card"><div class="label">섭취 단백질 / 기간 목표</div><div class="value">${metricValue(reportNutrition.protein, reportTargets.protein, "g")}</div></div><div class="card"><div class="label">섭취 나트륨 / 기간 목표</div><div class="value">${metricValue(reportNutrition.sodium, reportTargets.sodium, "mg")}</div></div></div><table><thead><tr><th>날짜</th><th>아침</th><th>점심</th><th>저녁</th><th>일일 섭취율</th></tr></thead><tbody>${rows}</tbody></table><p class="note">실제 대상자의 영양 섭취량은 서버에 저장된 날짜별 최신 분석 집계를 사용합니다. 목표 총량은 선택 기간의 하루 목표를 합산했습니다.</p><script>window.onload=()=>window.print();<\/script></body></html>`);
+    reportWindow.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(residentName)} 섭취 분석 리포트</title><style>body{font-family:Arial,'Noto Sans KR',sans-serif;color:#211812;padding:30px}h1{text-align:center;margin:0 0 6px}.meta{text-align:center;color:#6b625d;margin-bottom:24px}.summary{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:24px}.card{border:1px solid #d8cec7;border-radius:10px;padding:12px}.label{font-size:12px;color:#776d67}.value{font-size:16px;font-weight:800;margin-top:5px;white-space:nowrap}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #bfb5ae;padding:9px;vertical-align:top}thead th{background:#f3ece7}tbody th{white-space:nowrap;background:#faf7f4}.note{margin-top:16px;color:#776d67;font-size:10px}@media print{body{padding:0}}</style></head><body><h1>${escapeHtml(residentName)} 섭취 분석 리포트</h1><p class="meta">${escapeHtml(startDate)} ~ ${escapeHtml(endDate)}</p><div class="summary"><div class="card"><div class="label">평균 섭취율</div><div class="value">${averageRate == null ? "—" : `${averageRate}%`}</div></div><div class="card"><div class="label">섭취 열량 / 기간 목표</div><div class="value">${metricValue(reportNutrition.calorie, reportTargets.calorie, "kcal")}</div></div><div class="card"><div class="label">섭취 단백질 / 기간 목표</div><div class="value">${metricValue(reportNutrition.protein, reportTargets.protein, "g")}</div></div><div class="card"><div class="label">섭취 나트륨 / 기간 목표</div><div class="value">${metricValue(reportNutrition.sodium, reportTargets.sodium, "mg")}</div></div><div class="card"><div class="label">섭취 탄수화물 / 기간 목표</div><div class="value">${metricValue(reportNutrition.carbs, reportTargets.carbs, "g")}</div></div></div><table><thead><tr><th>날짜</th><th>아침</th><th>점심</th><th>저녁</th><th>일일 섭취율</th></tr></thead><tbody>${rows}</tbody></table><p class="note">실제 대상자의 영양 섭취량은 서버에 저장된 날짜별 최신 분석 집계를 사용합니다. 목표 총량은 선택 기간의 하루 목표를 합산했습니다.</p><script>window.onload=()=>window.print();<\/script></body></html>`);
     reportWindow.document.close();
   }
 
@@ -508,12 +553,15 @@ export function ResidentIntakeHistory({
     [recentSevenEntries, catalogById],
   );
   const selectedActuals = nutritionActualsByDate[selectedDate];
+  const selectedNutritionError = Boolean(nutritionErrorsByDate[selectedDate]);
+  const hasRecentNutritionError = recentSeven.some((date) => nutritionErrorsByDate[date]);
   const actualNutrition = residentId === DEMO_RESIDENT_ID
     ? estimatedNutrition
     : {
         calorie: nutrientActual(selectedActuals, "calorie")?.amount ?? 0,
         protein: nutrientActual(selectedActuals, "protein")?.amount ?? 0,
         sodium: nutrientActual(selectedActuals, "sodium")?.amount ?? 0,
+        carbs: nutrientActual(selectedActuals, "carbs")?.amount ?? 0,
       };
   const recentSevenNutrition = residentId === DEMO_RESIDENT_ID
     ? estimatedRecentSevenNutrition
@@ -521,7 +569,8 @@ export function ResidentIntakeHistory({
         calorie: total.calorie + (nutrientActual(nutritionActualsByDate[date], "calorie")?.amount ?? 0),
         protein: total.protein + (nutrientActual(nutritionActualsByDate[date], "protein")?.amount ?? 0),
         sodium: total.sodium + (nutrientActual(nutritionActualsByDate[date], "sodium")?.amount ?? 0),
-      }), { calorie: 0, protein: 0, sodium: 0 });
+        carbs: total.carbs + (nutrientActual(nutritionActualsByDate[date], "carbs")?.amount ?? 0),
+      }), { calorie: 0, protein: 0, sodium: 0, carbs: 0 });
   const hasRecentNutrition = residentId === DEMO_RESIDENT_ID
     ? recentSevenEntries.some((entry) => entry.dishes.length > 0)
     : recentSeven.some((date) => (nutritionActualsByDate[date]?.nutrients.length ?? 0) > 0);
@@ -535,10 +584,11 @@ export function ResidentIntakeHistory({
         calorie: total.calorie + (target?.target_calorie_kcal ?? 0),
         protein: total.protein + (target?.target_protein_g ?? 0),
         sodium: total.sodium + (target?.target_sodium_mg ?? 0),
+        carbs: total.carbs + (target?.target_carbs_g ?? 0),
         availableDays: total.availableDays + Number(Boolean(target)),
       };
     },
-    { calorie: 0, protein: 0, sodium: 0, availableDays: 0 },
+    { calorie: 0, protein: 0, sodium: 0, carbs: 0, availableDays: 0 },
   ), [recentSeven, recommendationsByMonth]);
   const recentTargets = residentId === DEMO_RESIDENT_ID
     ? recommendationRecentTargets
@@ -547,6 +597,7 @@ export function ResidentIntakeHistory({
         const calorie = nutrientActual(actuals, "calorie");
         const protein = nutrientActual(actuals, "protein");
         const sodium = nutrientActual(actuals, "sodium");
+        const carbs = nutrientActual(actuals, "carbs");
         const recommendation = recommendationForDate(
           recommendationsByMonth[date.slice(0, 7)] ?? null,
           date,
@@ -554,14 +605,16 @@ export function ResidentIntakeHistory({
         const calorieTarget = calorie?.target_amount ?? recommendation?.target_calorie_kcal;
         const proteinTarget = protein?.target_amount ?? recommendation?.target_protein_g;
         const sodiumTarget = sodium?.target_amount ?? recommendation?.target_sodium_mg;
-        const hasTargets = [calorieTarget, proteinTarget, sodiumTarget].every((target) => target != null);
+        const carbsTarget = carbs?.target_amount ?? recommendation?.target_carbs_g;
+        const hasTargets = [calorieTarget, proteinTarget, sodiumTarget, carbsTarget].every((target) => target != null);
         return {
           calorie: total.calorie + (calorieTarget ?? 0),
           protein: total.protein + (proteinTarget ?? 0),
           sodium: total.sodium + (sodiumTarget ?? 0),
+          carbs: total.carbs + (carbsTarget ?? 0),
           availableDays: total.availableDays + Number(hasTargets),
         };
-      }, { calorie: 0, protein: 0, sodium: 0, availableDays: 0 });
+      }, { calorie: 0, protein: 0, sodium: 0, carbs: 0, availableDays: 0 });
   const recommendationTargets = recommendationForDate(
     recommendationsByMonth[selectedDate.slice(0, 7)] ?? null,
     selectedDate,
@@ -577,6 +630,9 @@ export function ResidentIntakeHistory({
           ?? null,
         target_sodium_mg: nutrientActual(selectedActuals, "sodium")?.target_amount
           ?? recommendationTargets?.target_sodium_mg
+          ?? null,
+        target_carbs_g: nutrientActual(selectedActuals, "carbs")?.target_amount
+          ?? recommendationTargets?.target_carbs_g
           ?? null,
       };
   const hasAnalyzedDishes = residentId === DEMO_RESIDENT_ID
@@ -641,22 +697,32 @@ export function ResidentIntakeHistory({
                 <Badge variant="outline">월~일 합계</Badge>
               </div>
               {hasRecentNutrition ? (
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {[
                     { label: "열량", value: recentSevenNutrition.calorie, target: recentTargets.calorie, unit: "kcal" },
                     { label: "단백질", value: recentSevenNutrition.protein, target: recentTargets.protein, unit: "g" },
                     { label: "나트륨", value: recentSevenNutrition.sodium, target: recentTargets.sodium, unit: "mg" },
+                    { label: "탄수화물", value: recentSevenNutrition.carbs, target: recentTargets.carbs, unit: "g" },
                   ].map((metric) => (
                     <NutritionMetricCard
                       key={metric.label}
                       {...metric}
-                      targetAvailable={recentTargets.availableDays === recentSeven.length}
+                      targetAvailable={!hasRecentNutritionError && recentTargets.availableDays === recentSeven.length}
                       className="bg-muted/30 px-4 py-3"
                     />
                   ))}
                 </div>
+              ) : hasRecentNutritionError ? (
+                <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-5 text-center text-xs text-amber-800">
+                  일부 날짜의 영양 섭취량을 불러오지 못했습니다. 해당 날짜는 합계에 포함하지 않았습니다.
+                </p>
               ) : (
                 <p className="mt-3 rounded-lg bg-muted px-3 py-5 text-center text-xs text-muted-foreground">이번 주에 계산할 수 있는 잔반 분석 결과가 없습니다.</p>
+              )}
+              {hasRecentNutrition && hasRecentNutritionError && (
+                <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  일부 날짜의 영양 API 조회에 실패하여 성공한 날짜만 합산했습니다. 목표 대비 비율은 표시하지 않습니다.
+                </p>
               )}
               {hasRecentNutrition && <p className="mt-3 text-[11px] text-muted-foreground">반찬 100g 영양정보에 판독된 섭취 비율을 적용한 추정 합계입니다.</p>}
             </div>
@@ -771,6 +837,25 @@ export function ResidentIntakeHistory({
                           <div key={`${entry.meal_id}-${dish.banchan_id}`} className="flex justify-between gap-2 text-xs"><span>{dish.banchan_name ?? "반찬명 미확인"}</span><span className="font-semibold">{Math.round(100 - dish.leftover_pct)}% 섭취</span></div>
                         ))}
                       </div>
+                      {entry && (entry.unmeasured?.length ?? 0) > 0 && (
+                        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2.5 text-[11px] text-amber-950">
+                          <div className="flex items-center justify-between gap-2">
+                            <strong>섭취량 미측정 메뉴</strong>
+                            <span className="shrink-0 font-semibold text-amber-700">{entry.unmeasured?.length}개</span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {entry.unmeasured?.map((dish, index) => (
+                              <span key={`${entry.meal_id}-unmeasured-${dish.class_name ?? index}`} className="rounded-full border border-amber-200 bg-white/70 px-2 py-1 font-medium">
+                                {unmeasuredDishLabel(dish, index)}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="mt-2 text-[10px] text-amber-700">사진에서 섭취량을 확인하지 못한 메뉴입니다.</p>
+                        </div>
+                      )}
+                      {entry && (entry.warnings?.length ?? 0) > 0 && (
+                        <p className="mt-2 text-[11px] text-amber-700">{entry.warnings?.join(" · ")}</p>
+                      )}
                     </article>
                   );
                 })}
@@ -785,16 +870,30 @@ export function ResidentIntakeHistory({
                 </div>
                 <Badge variant="outline">{selectedDate}</Badge>
               </div>
-              {!hasAnalyzedDishes ? (
+              {selectedNutritionError ? (
+                <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-5 text-center text-xs text-amber-800">
+                  <p>이 날짜의 영양 섭취량을 불러오지 못했습니다.</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => setHistoryRevision((current) => current + 1)}
+                  >
+                    다시 시도
+                  </Button>
+                </div>
+              ) : !hasAnalyzedDishes ? (
                 <p className="mt-4 rounded-lg bg-muted px-3 py-5 text-center text-xs text-muted-foreground">
                   이 날짜에는 영양 섭취량을 계산할 수 있는 잔반 분석 결과가 없습니다.
                 </p>
               ) : (
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {[
                     { label: "열량", value: actualNutrition.calorie, target: targets?.target_calorie_kcal, unit: "kcal" },
                     { label: "단백질", value: actualNutrition.protein, target: targets?.target_protein_g, unit: "g" },
                     { label: "나트륨", value: actualNutrition.sodium, target: targets?.target_sodium_mg, unit: "mg" },
+                    { label: "탄수화물", value: actualNutrition.carbs, target: targets?.target_carbs_g, unit: "g" },
                   ].map((metric) => <NutritionMetricCard key={metric.label} {...metric} />)}
                 </div>
               )}

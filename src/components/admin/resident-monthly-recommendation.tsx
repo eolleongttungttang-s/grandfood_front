@@ -276,8 +276,22 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
           </div>
         </div>
       )}
-      {selectedItems.length > 0 && (
-        <div className="grid gap-3 md:grid-cols-3">
+      {(selectedStaple || selectedItems.length > 0) && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {selectedStaple && (
+            <article className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div><h3 className="font-extrabold">{selectedStaple.name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{selectedStaple.category}</p></div>
+                <Badge variant="secondary">기본 주식</Badge>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <span className="rounded-md bg-muted px-2 py-1.5">열량 <strong>{selectedStaple.calorie_per_100g ?? "-"}{selectedStaple.calorie_per_100g == null ? "" : "kcal/100g"}</strong></span>
+                <span className="rounded-md bg-muted px-2 py-1.5">단백질 <strong>{selectedStaple.protein_per_100g ?? "-"}{selectedStaple.protein_per_100g == null ? "" : "g"}</strong></span>
+                <span className="rounded-md bg-muted px-2 py-1.5">나트륨 <strong>{selectedStaple.sodium_per_100g ?? "-"}{selectedStaple.sodium_per_100g == null ? "" : "mg"}</strong></span>
+                <span className="rounded-md bg-muted px-2 py-1.5">탄수화물 <strong>{selectedStaple.carbs_per_100g ?? "-"}{selectedStaple.carbs_per_100g == null ? "" : "g"}</strong></span>
+              </div>
+            </article>
+          )}
           {selectedItems.map((item) => (
             <article key={`${item.banchan_id}-nutrition`} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-start justify-between gap-3"><div><h3 className="font-extrabold">{item.name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{item.category}</p></div><div className="flex items-center gap-1"><Badge variant={item.suitability === "recommended" ? "secondary" : "outline"}>{item.suitability === "recommended" ? "추천" : item.suitability === "caution" ? "주의" : "피하기"}</Badge><Button type="button" size="icon-sm" variant="ghost" disabled={selectedReviewStatus === "confirmed"} onClick={() => void openSwap(item)} title={selectedReviewStatus === "confirmed" ? "검수 완료된 식단입니다" : "다른 반찬으로 교체"}><RefreshCw /><span className="sr-only">{item.name} 교체</span></Button></div></div>

@@ -352,12 +352,12 @@ export function MealImageUpload({
   ];
   const recommendationId = recommendationForDate(todayRecommendation, todayKey)?.id ?? null;
 
-  const fetchAnalysisResult = async (mealId: string, accessToken?: string) => {
+  const fetchAnalysisResult = async (mealId: string, accessToken: string) => {
     for (let attempt = 0; attempt < ANALYSIS_POLL_MAX_ATTEMPTS; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, ANALYSIS_POLL_INTERVAL_MS));
       const response = await fetch(
         `${getApiUrl()}/app/elder/${encodeURIComponent(residentId)}/diet-history?days=1`,
-        { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined },
+        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
       const result = (await response.json().catch(() => null)) as
         | DietHistoryResponse
@@ -387,10 +387,10 @@ export function MealImageUpload({
     return null;
   };
 
-  const fetchNutritionSummary = async (accessToken?: string) => {
+  const fetchNutritionSummary = async (accessToken: string) => {
     const response = await fetch(
       `${getApiUrl()}/app/elder/${encodeURIComponent(residentId)}/nutrition-gaps?days=1`,
-      { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined },
+      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!response.ok) return null;
     const result = (await response.json()) as NutritionGapsResponse;
@@ -402,13 +402,17 @@ export function MealImageUpload({
     setIsAnalyzing(true);
     setAnalysisTimedOut(false);
     try {
+      const accessToken = readAdminSession()?.accessToken;
+      if (!accessToken) {
+        throw new Error("관리자 로그인 토큰이 없습니다. 로그아웃 후 다시 로그인해 주세요.");
+      }
       const result = await fetchAnalysisResult(
         pendingAnalysisMealId,
-        readAdminSession()?.accessToken,
+        accessToken,
       );
       if (result) {
         setAnalysisResult(result);
-        setNutritionSummary(await fetchNutritionSummary(readAdminSession()?.accessToken));
+        setNutritionSummary(await fetchNutritionSummary(accessToken));
         setPendingAnalysisMealId(null);
         toast.success("GPU 잔반 분석이 완료됐어요.");
       } else {
@@ -445,13 +449,14 @@ export function MealImageUpload({
       formData.append("beforePhoto", beforeImage.file);
       formData.append("afterPhoto", afterImage.file);
       const accessToken = readAdminSession()?.accessToken;
+      if (!accessToken) {
+        throw new Error("관리자 로그인 토큰이 없습니다. 로그아웃 후 다시 로그인해 주세요.");
+      }
       const response = await fetch(
         `${getApiUrl()}/wards/${encodeURIComponent(residentId)}/meal-logs`,
         {
           method: "POST",
-          headers: accessToken
-            ? { Authorization: `Bearer ${accessToken}` }
-            : undefined,
+          headers: { Authorization: `Bearer ${accessToken}` },
           body: formData,
         },
       );
