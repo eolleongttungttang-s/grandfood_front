@@ -167,15 +167,6 @@ function dayLabel(dateKey: string) {
   return `${weekday} ${Number(month)}/${Number(day)}`;
 }
 
-function unmeasuredDishLabel(dish: UnmeasuredDish, index: number) {
-  if (dish.banchan_name?.trim()) return dish.banchan_name;
-  if (dish.class_name?.startsWith("unknown#")) {
-    const unknownNumber = dish.class_name.slice("unknown#".length);
-    return `미확인 메뉴 ${unknownNumber || index + 1}`;
-  }
-  return dish.class_name?.trim() || `미확인 메뉴 ${index + 1}`;
-}
-
 function calculateNutrition(entries: DietEntry[], catalogById: Record<string, DishCatalogItem>) {
   return entries
     .flatMap((entry) => entry.dishes)
@@ -820,6 +811,9 @@ export function ResidentIntakeHistory({
             {activeTab === "history" && <div className="mt-4 grid gap-3 lg:grid-cols-3">
                 {MEAL_TYPES.map((mealType) => {
                   const entry = selectedEntries.find((item) => item.meal_type === mealType);
+                  const unmeasuredScheduledDishes = entry?.unmeasured?.filter(
+                    (dish) => Boolean(dish.banchan_name?.trim()),
+                  ) ?? [];
                   return (
                     <article key={mealType} className="rounded-xl bg-muted p-3">
                       <div className="flex justify-between">
@@ -840,17 +834,21 @@ export function ResidentIntakeHistory({
                       {entry && (entry.unmeasured?.length ?? 0) > 0 && (
                         <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2.5 text-[11px] text-amber-950">
                           <div className="flex items-center justify-between gap-2">
-                            <strong>섭취량 미측정 메뉴</strong>
-                            <span className="shrink-0 font-semibold text-amber-700">{entry.unmeasured?.length}개</span>
+                            <strong>측정 불가</strong>
+                            {unmeasuredScheduledDishes.length > 0 && (
+                              <span className="shrink-0 font-semibold text-amber-700">{unmeasuredScheduledDishes.length}개</span>
+                            )}
                           </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {entry.unmeasured?.map((dish, index) => (
-                              <span key={`${entry.meal_id}-unmeasured-${dish.class_name ?? index}`} className="rounded-full border border-amber-200 bg-white/70 px-2 py-1 font-medium">
-                                {unmeasuredDishLabel(dish, index)}
-                              </span>
-                            ))}
-                          </div>
-                          <p className="mt-2 text-[10px] text-amber-700">사진에서 섭취량을 확인하지 못한 메뉴입니다.</p>
+                          {unmeasuredScheduledDishes.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {unmeasuredScheduledDishes.map((dish, index) => (
+                                <span key={`${entry.meal_id}-unmeasured-${dish.class_name ?? index}`} className="rounded-full border border-amber-200 bg-white/70 px-2 py-1 font-medium">
+                                  {dish.banchan_name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <p className="mt-2 text-[10px] text-amber-700">예정 식단과 사진이 일치하지 않아 섭취량을 측정할 수 없습니다.</p>
                         </div>
                       )}
                       {entry && (entry.warnings?.length ?? 0) > 0 && (
