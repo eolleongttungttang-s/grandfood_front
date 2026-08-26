@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { readAdminSession } from "@/lib/admin-auth";
-import { extractErrorMessage, getApiUrl } from "@/lib/api";
+import { extractErrorMessage, getApiUrl, userFacingErrorMessage } from "@/lib/api";
 import {
   fetchMonthlyRecommendation,
   type FacilityMealType,
@@ -419,7 +419,7 @@ export function MealImageUpload({
         setAnalysisTimedOut(true);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "분석 결과를 조회하지 못했습니다.");
+      toast.error(userFacingErrorMessage(error, "분석 결과를 조회하지 못했습니다."));
     } finally {
       setIsAnalyzing(false);
     }
@@ -488,9 +488,7 @@ export function MealImageUpload({
         toast.success("이미지는 저장됐습니다. GPU 분석 결과는 잠시 후 다시 확인해 주세요.");
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "잔반 분석 중 오류가 발생했습니다.",
-      );
+      toast.error(userFacingErrorMessage(error, "잔반 분석 중 오류가 발생했습니다."));
     } finally {
       setIsAnalyzing(false);
     }

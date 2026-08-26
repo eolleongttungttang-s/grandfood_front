@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { readAdminSession } from "@/lib/admin-auth";
-import { extractErrorMessage, getApiUrl } from "@/lib/api";
+import { extractErrorMessage, getApiUrl, userFacingErrorMessage } from "@/lib/api";
 import {
   fetchBanchanCatalog,
   fetchMonthlyRecommendation,
@@ -334,7 +334,7 @@ export function ResidentIntakeHistory({
         setItems((result as DietHistoryResponse).items ?? []);
       } catch (caught) {
         if (controller.signal.aborted) return;
-        setError(caught instanceof Error ? caught.message : "섭취 기록을 불러오지 못했습니다.");
+        setError(userFacingErrorMessage(caught, "섭취 기록을 불러오지 못했습니다."));
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
@@ -852,7 +852,9 @@ export function ResidentIntakeHistory({
                         </div>
                       )}
                       {entry && (entry.warnings?.length ?? 0) > 0 && (
-                        <p className="mt-2 text-[11px] text-amber-700">{entry.warnings?.join(" · ")}</p>
+                        <p className="mt-2 text-[11px] text-amber-700">
+                          식전·식후 사진에서 감지된 그릇 수와 식단 메뉴 수가 일치하지 않습니다.
+                        </p>
                       )}
                     </article>
                   );

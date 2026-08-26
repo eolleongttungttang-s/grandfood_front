@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/admin/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getJson } from "@/lib/api";
+import { getJson, userFacingErrorMessage } from "@/lib/api";
 import { readAdminSession } from "@/lib/admin-auth";
 import type { WardSummary } from "@/lib/admin-wards-api";
 import { projectMapFeatures, type MapGeometry } from "@/lib/admin-map-geometry";
@@ -146,7 +146,7 @@ export function ApiMapMonitoringDashboard() {
       setSelectedCode((current) => current && nextFeatures.some((item) => item.properties.code === current) ? current : null);
     } catch (loadError) {
       setFeatures([]);
-      setError(loadError instanceof Error ? loadError.message : "지도 데이터를 불러오지 못했습니다.");
+      setError(userFacingErrorMessage(loadError, "지도 데이터를 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }

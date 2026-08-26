@@ -281,9 +281,9 @@ export function NoticesPanel() {
                   <Badge variant="outline">
                     {notice.region_name ?? notice.facility_name ?? "전체 기관"}
                   </Badge>
-                  {(notice.region_name || notice.facility_id) && (
+                  {notice.facility_id && (
                     <Badge variant="outline">
-                      {notice.region_name ?? (notice.facility_id ? facilityRegions[notice.facility_id] : null) ?? "지역 미등록"}
+                      {notice.region_name ?? facilityRegions[notice.facility_id] ?? "지역 미등록"}
                     </Badge>
                   )}
                 </div>

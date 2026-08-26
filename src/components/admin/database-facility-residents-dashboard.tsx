@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getJson } from "@/lib/api";
+import { getJson, userFacingErrorMessage } from "@/lib/api";
 import type { WardSummary } from "@/lib/admin-wards-api";
 import { getConditionLabel } from "@/lib/admin-ward-registration";
 
@@ -53,7 +53,7 @@ export function DatabaseFacilityResidentsDashboard() {
           setResidents(wards.filter((ward) => ward.facility_code === selected.facility_code));
         }
       } catch (loadError) {
-        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "시설 대상자를 불러오지 못했습니다.");
+        if (!cancelled) setError(userFacingErrorMessage(loadError, "시설 대상자를 불러오지 못했습니다."));
       } finally {
         if (!cancelled) setLoading(false);
       }

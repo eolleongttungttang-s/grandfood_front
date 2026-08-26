@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { ResidentsTable } from "@/components/admin/residents-table";
 import { fetchFacilityWards } from "@/lib/admin-wards-api";
 import { createDemoResident, Resident, RiskLevel } from "@/lib/admin-residents";
-import { getJson } from "@/lib/api";
+import { getJson, userFacingErrorMessage } from "@/lib/api";
 
 const VALID_RISK: RiskLevel[] = ["고위험", "주의", "보통"];
 
@@ -41,7 +41,7 @@ export default function AdminResidentsPage() {
       .catch((error) => {
         if (cancelled) return;
         toast.error(
-          error instanceof Error ? error.message : "대상자 명단을 불러오지 못했습니다.",
+          userFacingErrorMessage(error, "대상자 명단을 불러오지 못했습니다."),
         );
         setResidents([]);
       });
