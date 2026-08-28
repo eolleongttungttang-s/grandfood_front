@@ -36,10 +36,12 @@ export function StatisticsDashboard({
   facilities = CARE_FACILITIES,
   scopeLabel = "전체",
   facilityDetailBasePath = "/admin/statistics/facilities",
+  title = "통합 모니터링(예시)",
 }: {
   facilities?: CareFacility[];
   scopeLabel?: "시설" | "관할" | "전체";
   facilityDetailBasePath?: string | null;
+  title?: string;
 }) {
   const router = useRouter();
   const facilityDetailHref = (facilityId: string) =>
@@ -138,7 +140,7 @@ export function StatisticsDashboard({
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
       <PageHeader
-        title="통합 모니터링(예시)"
+        title={title}
         description={`${scopeLabel} 범위의 요양원·복지기관 식사 기록과 건강 이상 징후를 확인합니다.`}
         action={<Badge variant="secondary">오늘 14:30 기준</Badge>}
       />

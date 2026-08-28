@@ -10,9 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getJson } from "@/lib/api";
+import { getJson, userFacingErrorMessage } from "@/lib/api";
 import type { WardSummary } from "@/lib/admin-wards-api";
 import { getConditionLabel } from "@/lib/admin-ward-registration";
+import {
+  fetchWardMealStats,
+  type WardMealStats,
+} from "@/components/admin/database-statistics-dashboard";
 
 type FacilityResponse = {
   facility_id: string;
@@ -28,6 +32,7 @@ export function DatabaseFacilityResidentsDashboard() {
   const facilityId = useSearchParams().get("id") ?? "";
   const [facility, setFacility] = useState<FacilityResponse | null>(null);
   const [residents, setResidents] = useState<WardSummary[]>([]);
+  const [mealStats, setMealStats] = useState<Map<string, WardMealStats | null>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -48,12 +53,17 @@ export function DatabaseFacilityResidentsDashboard() {
         ]);
         const selected = facilities.find((item) => item.facility_id === facilityId) ?? null;
         if (!selected) throw new Error("선택한 시설을 찾지 못했습니다.");
+        const selectedResidents = wards.filter((ward) =>
+          ward.facility_code?.trim().toUpperCase() === selected.facility_code.trim().toUpperCase(),
+        );
+        const selectedMealStats = await fetchWardMealStats(selectedResidents);
         if (!cancelled) {
           setFacility(selected);
-          setResidents(wards.filter((ward) => ward.facility_code === selected.facility_code));
+          setResidents(selectedResidents);
+          setMealStats(selectedMealStats);
         }
       } catch (loadError) {
-        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "시설 대상자를 불러오지 못했습니다.");
+        if (!cancelled) setError(userFacingErrorMessage(loadError, "시설 대상자를 불러오지 못했습니다."));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -71,19 +81,47 @@ export function DatabaseFacilityResidentsDashboard() {
   }, [residents, search]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visibleResidents = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const facilityTotals = useMemo(() => {
+    const stats = residents
+      .map((resident) => mealStats.get(resident.id))
+      .filter((item): item is WardMealStats => item != null);
+    const expectedMeals = stats.reduce((sum, item) => sum + item.expectedMeals, 0);
+    const recordedMeals = stats.reduce((sum, item) => sum + item.recordedMeals, 0);
+    const intakeRates = stats.flatMap((item) => item.intakeRates);
+    return {
+      recordRate: expectedMeals ? Math.round((recordedMeals / expectedMeals) * 100) : 0,
+      intakeRate: intakeRates.length
+        ? Math.round(intakeRates.reduce((sum, rate) => sum + rate, 0) / intakeRates.length)
+        : 0,
+    };
+  }, [mealStats, residents]);
 
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
       <div>
-        <Button variant="ghost" size="sm" render={<Link href="/admin/statistics-empty" />}><ArrowLeft /> 통합모니터링2로 돌아가기</Button>
+        <Button variant="ghost" size="sm" render={<Link href="/admin/statistics-empty" />}><ArrowLeft /> 통합 모니터링으로 돌아가기</Button>
         <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" /><h1 className="text-2xl font-extrabold">{facility?.name ?? "시설 관리 어르신"}</h1>{facility && <Badge variant="outline">{facility.facility_code}</Badge>}</div>
-            <p className="mt-1 text-sm text-muted-foreground">목데이터가 아닌 백엔드에 등록된 실제 대상자 목록입니다.</p>
           </div>
           <div className="flex items-center gap-2 rounded-xl bg-primary/5 px-4 py-3"><UsersRound className="h-5 w-5 text-primary" /><span className="text-sm">관리 어르신</span><strong className="text-xl">{residents.length}명</strong></div>
         </div>
       </div>
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        {[
+          ["관리 어르신", `${residents.length}명`],
+          ["식사 기록률", `${facilityTotals.recordRate}%`],
+          ["평균 섭취율", `${facilityTotals.intakeRate}%`],
+        ].map(([label, value]) => (
+          <Card key={label}>
+            <CardContent className="py-2">
+              <p className="text-sm text-muted-foreground">{label}</p>
+              <p className="mt-1 text-2xl font-extrabold">{value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
 
       <Card>
         <CardHeader>
@@ -98,13 +136,22 @@ export function DatabaseFacilityResidentsDashboard() {
           ) : (
             <>
               <Table>
-                <TableHeader><TableRow><TableHead>번호</TableHead><TableHead>성명</TableHead><TableHead>나이·성별</TableHead><TableHead>주소</TableHead><TableHead>주요 질환</TableHead><TableHead>보호자</TableHead><TableHead>담당자</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>번호</TableHead><TableHead>성명</TableHead><TableHead>나이·성별</TableHead><TableHead>주소</TableHead><TableHead>주요 질환</TableHead><TableHead className="text-right">기록률</TableHead><TableHead className="text-right">섭취율</TableHead><TableHead>보호자</TableHead><TableHead>담당자</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {visibleResidents.map((resident, index) => (
-                    <TableRow key={resident.id}>
-                      <TableCell className="font-mono text-xs">{String((page - 1) * PAGE_SIZE + index + 1).padStart(3, "0")}</TableCell><TableCell className="font-bold">{resident.name}</TableCell><TableCell>{resident.age}세 · {resident.gender === "male" ? "남" : resident.gender === "female" ? "여" : "미상"}</TableCell><TableCell>{resident.address}</TableCell><TableCell>{resident.condition_flags.length ? resident.condition_flags.map(getConditionLabel).join(", ") : "특이사항 없음"}</TableCell><TableCell>{resident.guardian_name ?? "미등록"}</TableCell><TableCell>{resident.case_worker_name ?? "미지정"}</TableCell>
-                    </TableRow>
-                  ))}
+                  {visibleResidents.map((resident, index) => {
+                    const stats = mealStats.get(resident.id);
+                    const recordRate = stats?.expectedMeals
+                      ? Math.round((stats.recordedMeals / stats.expectedMeals) * 100)
+                      : 0;
+                    const intakeRate = stats?.intakeRates.length
+                      ? Math.round(stats.intakeRates.reduce((sum, rate) => sum + rate, 0) / stats.intakeRates.length)
+                      : 0;
+                    return (
+                      <TableRow key={resident.id}>
+                        <TableCell className="font-mono text-xs">{String((page - 1) * PAGE_SIZE + index + 1).padStart(3, "0")}</TableCell><TableCell className="font-bold">{resident.name}</TableCell><TableCell>{resident.age}세 · {resident.gender === "male" ? "남" : resident.gender === "female" ? "여" : "미상"}</TableCell><TableCell>{resident.address}</TableCell><TableCell>{resident.condition_flags.length ? resident.condition_flags.map(getConditionLabel).join(", ") : "특이사항 없음"}</TableCell><TableCell className="text-right font-semibold">{recordRate}%</TableCell><TableCell className="text-right font-semibold">{intakeRate}%</TableCell><TableCell>{resident.guardian_name ?? "미등록"}</TableCell><TableCell>{resident.case_worker_name ?? "미지정"}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
               <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground"><span>총 {filtered.length}명 · {page}/{totalPages} 페이지</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>이전</Button><Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>다음</Button></div></div>

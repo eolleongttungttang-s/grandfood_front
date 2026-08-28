@@ -57,6 +57,17 @@ export function extractErrorMessage(detail: unknown, fallback: string): string {
   return fallback;
 }
 
+export function userFacingErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+
+  const message = error.message.trim();
+  if (/failed to fetch|networkerror|network request failed|load failed/i.test(message)) {
+    return "서버와 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  return message || fallback;
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const result = (await response.json().catch(() => null)) as
     | (T & { detail?: unknown })

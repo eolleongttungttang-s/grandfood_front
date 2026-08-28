@@ -19,6 +19,23 @@ type FacilityApiResponse = {
   facility_code: string;
 };
 
+type DietHistoryEntry = {
+  meal_date: string;
+  meal_type: string;
+  completed: boolean;
+  recorded: boolean;
+  quick_check_status: string | null;
+  dishes: Array<{ leftover_pct: number }>;
+};
+
+type DietHistoryResponse = { items: DietHistoryEntry[] };
+
+export type WardMealStats = {
+  expectedMeals: number;
+  recordedMeals: number;
+  intakeRates: number[];
+};
+
 const facilityTypeLabels: Record<FacilityApiResponse["facility_type"], CareFacility["type"]> = {
   MUNICIPALITY: "지자체",
   NURSING_HOME: "요양원",
@@ -65,9 +82,64 @@ function dashboardScopeLabel(session: AdminSession | null) {
   return "전체";
 }
 
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function mealStatsForWard(ward: WardSummary, entries: DietHistoryEntry[]): WardMealStats {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const firstDate = new Date(today);
+  firstDate.setDate(firstDate.getDate() - 7);
+  const registeredDate = ward.created_at?.slice(0, 10);
+  const eligibleStart = registeredDate && registeredDate > dateKey(firstDate)
+    ? registeredDate
+    : dateKey(firstDate);
+  const todayKey = dateKey(today);
+  let eligibleDays = 0;
+  for (const cursor = new Date(firstDate); dateKey(cursor) < todayKey; cursor.setDate(cursor.getDate() + 1)) {
+    if (dateKey(cursor) >= eligibleStart) eligibleDays += 1;
+  }
+
+  const uniqueEntries = new Map<string, DietHistoryEntry>();
+  for (const entry of entries) {
+    if (entry.meal_date < eligibleStart || entry.meal_date >= todayKey) continue;
+    const key = `${entry.meal_date}:${entry.meal_type}`;
+    const current = uniqueEntries.get(key);
+    if (!current || (!current.completed && entry.completed)) uniqueEntries.set(key, entry);
+  }
+
+  const recordedEntries = [...uniqueEntries.values()].filter((entry) => entry.recorded);
+  const intakeRates = recordedEntries.flatMap((entry) => {
+    if (entry.completed && entry.dishes.length > 0) {
+      return [entry.dishes.reduce((sum, dish) => sum + (100 - dish.leftover_pct), 0) / entry.dishes.length];
+    }
+    return [];
+  });
+
+  return { expectedMeals: eligibleDays * 3, recordedMeals: recordedEntries.length, intakeRates };
+}
+
+export async function fetchWardMealStats(wards: WardSummary[]) {
+  const results = await Promise.all(
+    wards.map(async (ward) => {
+      try {
+        const history = await getJson<DietHistoryResponse>(
+          `/app/elder/${encodeURIComponent(ward.id)}/diet-history?days=8`,
+        );
+        return [ward.id, mealStatsForWard(ward, history.items ?? [])] as const;
+      } catch {
+        return [ward.id, null] as const;
+      }
+    }),
+  );
+  return new Map(results);
+}
+
 function mapDatabaseFacilities(
   facilities: FacilityApiResponse[],
   wards: WardSummary[],
+  mealStats: Map<string, WardMealStats | null>,
 ): CareFacility[] {
   const municipalities = facilities.filter(
     (facility) => facility.facility_type === "MUNICIPALITY",
@@ -75,10 +147,11 @@ function mapDatabaseFacilities(
   const residentCounts = new Map<string, number>();
 
   for (const ward of wards) {
-    if (!ward.facility_code) continue;
+    const facilityKey = ward.facility_code?.trim().toUpperCase();
+    if (!facilityKey) continue;
     residentCounts.set(
-      ward.facility_code,
-      (residentCounts.get(ward.facility_code) ?? 0) + 1,
+      facilityKey,
+      (residentCounts.get(facilityKey) ?? 0) + 1,
     );
   }
 
@@ -88,6 +161,15 @@ function mapDatabaseFacilities(
       const parentMunicipality = municipalities.find((candidate) =>
         facility.facility_code.startsWith(`${candidate.facility_code}-`),
       );
+      const facilityWardStats = wards
+        .filter((ward) =>
+          ward.facility_code?.trim().toUpperCase() === facility.facility_code.trim().toUpperCase(),
+        )
+        .map((ward) => mealStats.get(ward.id))
+        .filter((stats): stats is WardMealStats => stats != null);
+      const expectedMeals = facilityWardStats.reduce((sum, stats) => sum + stats.expectedMeals, 0);
+      const recordedMeals = facilityWardStats.reduce((sum, stats) => sum + stats.recordedMeals, 0);
+      const intakeRates = facilityWardStats.flatMap((stats) => stats.intakeRates);
 
       return {
         id: facility.facility_id,
@@ -102,9 +184,13 @@ function mapDatabaseFacilities(
         municipalityCode: parentMunicipality?.facility_code ?? facility.facility_code,
         name: facility.name,
         type: facilityTypeLabels[facility.facility_type],
-        residents: residentCounts.get(facility.facility_code) ?? 0,
-        mealRecordRate: 0,
-        averageIntakeRate: 0,
+        residents:
+          residentCounts.get(facility.facility_code.trim().toUpperCase()) ??
+          0,
+        mealRecordRate: expectedMeals ? Math.round((recordedMeals / expectedMeals) * 100) : 0,
+        averageIntakeRate: intakeRates.length
+          ? Math.round(intakeRates.reduce((sum, rate) => sum + rate, 0) / intakeRates.length)
+          : 0,
         lowIntakeResidents: 0,
         unresolvedAlerts: 0,
       };
@@ -128,12 +214,14 @@ export function DatabaseStatisticsDashboard() {
         const wardRows = await getJson<WardSummary[]>("/gov/facility/wards").catch(
           () => [] as WardSummary[],
         );
+        const mealStats = await fetchWardMealStats(wardRows);
         if (!cancelled) {
           setScopeLabel(dashboardScopeLabel(session));
           setFacilities(
             mapDatabaseFacilities(
               facilitiesVisibleToSession(facilityRows, session),
               wardRows,
+              mealStats,
             ),
           );
         }
@@ -154,7 +242,7 @@ export function DatabaseStatisticsDashboard() {
     };
   }, []);
 
-  if (facilities) return <StatisticsDashboard facilities={facilities} scopeLabel={scopeLabel} facilityDetailBasePath="/admin/statistics-empty/facility?id=" />;
+  if (facilities) return <StatisticsDashboard facilities={facilities} scopeLabel={scopeLabel} facilityDetailBasePath="/admin/statistics-empty/facility?id=" title="통합 모니터링" />;
 
   return (
     <main className="flex flex-1 flex-col gap-5 p-4 sm:p-6">
