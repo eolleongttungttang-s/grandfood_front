@@ -62,7 +62,7 @@ export function AppSidebar() {
   const managementPath = isSuperAdmin
     ? "/admin/dashboard?section=registration"
     : "/admin/dashboard?section=approvals";
-  const homePath = "/admin/statistics-empty";
+  const homePath = "/admin/notices";
   const organizationName = getAdminOrganizationName(session);
 
   function handleLogout() {
