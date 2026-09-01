@@ -13,6 +13,8 @@ import {
 import {
   ACTIVITY_LEVEL_OPTIONS,
   CONDITION_OPTIONS,
+  getActivityLevelLabel,
+  getMobilityLevelLabel,
   makeFoodRules,
   splitItems,
   type ActivityLevel,
@@ -669,7 +671,7 @@ function RegisterResidentDialog({
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="resident-activity">평소 활동량 <span className="text-destructive">*</span></Label>
               <Select value={activityLevel} onValueChange={(value) => setActivityLevel((value as ActivityLevel) ?? "sedentary")}>
-                <SelectTrigger id="resident-activity" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="resident-activity" className="w-full"><SelectValue>{getActivityLevelLabel(activityLevel)}</SelectValue></SelectTrigger>
                 <SelectContent>
                   {ACTIVITY_LEVEL_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
                 </SelectContent>
@@ -687,7 +689,7 @@ function RegisterResidentDialog({
             <div className="space-y-2">
               <Label htmlFor="resident-chewing">씹기 어려움</Label>
               <Select value={chewingDifficulty ? "yes" : "no"} onValueChange={(value) => setChewingDifficulty(value === "yes")}>
-                <SelectTrigger id="resident-chewing" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="resident-chewing" className="w-full"><SelectValue>{chewingDifficulty ? "있음" : "없음"}</SelectValue></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="no">없음</SelectItem>
                   <SelectItem value="yes">있음</SelectItem>
@@ -697,7 +699,7 @@ function RegisterResidentDialog({
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="resident-mobility">거동 상태</Label>
               <Select value={mobilityLevel} onValueChange={(value) => setMobilityLevel((value ?? "independent") as typeof mobilityLevel)}>
-                <SelectTrigger id="resident-mobility" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="resident-mobility" className="w-full"><SelectValue>{getMobilityLevelLabel(mobilityLevel)}</SelectValue></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="independent">독립 보행</SelectItem>
                   <SelectItem value="needs_assistance">보행 도움 필요</SelectItem>

@@ -66,26 +66,37 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
   const [reviewUpdating, setReviewUpdating] = useState(false);
   const isDemo = resident.id === DEMO_RESIDENT_ID;
   const monthKey = getMonthKey(month);
-  const days = useMemo(() => {
+  const calendarDays = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
     const last = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-    const calendarDays = [
+    const cells = [
       ...Array.from({ length: first }, () => null),
       ...Array.from({ length: last }, (_, index) => index + 1),
     ];
-    const trailingEmptyCount = (7 - (calendarDays.length % 7)) % 7;
-    return [...calendarDays, ...Array.from({ length: trailingEmptyCount }, () => null)];
+    const trailingEmptyCount = (7 - (cells.length % 7)) % 7;
+    return [...cells, ...Array.from({ length: trailingEmptyCount }, () => null)];
   }, [month]);
+  // 월 경계에 걸친 첫 주는 weeks 응답에 포함되지 않을 수 있다. 캘린더와 출력은
+  // 주별 응답을 펼치지 않고, 백엔드가 해당 월 전체를 보장하는 days를 기준으로 만든다.
+  const recommendationDays = useMemo(
+    () => [...(monthly?.days ?? [])]
+      .filter((day) => day.service_date.startsWith(`${monthKey}-`))
+      .sort((a, b) => a.service_date.localeCompare(b.service_date)),
+    [monthKey, monthly?.days],
+  );
+  const recommendationDayByDate = useMemo(
+    () => new Map(recommendationDays.map((day) => [day.service_date, day])),
+    [recommendationDays],
+  );
   const printableWeeks = useMemo(() => {
-    const recommendationDays = monthly?.days ?? [];
     return Array.from(
       { length: Math.ceil(recommendationDays.length / 7) },
       (_, index) => recommendationDays.slice(index * 7, index * 7 + 7),
     );
-  }, [monthly?.days]);
+  }, [recommendationDays]);
   const isGenerating = monthly?.weeks.some((week) => week.generation_status === "generating") ?? false;
-  const hasRecommendations = monthly?.days?.some((day) => day.meals.some((meal) => meal.items.length > 0)) ?? false;
-  const selectedDay = monthly?.days?.find((day) => day.service_date === selectedDate) ?? null;
+  const hasRecommendations = recommendationDays.some((day) => day.meals.some((meal) => meal.items.length > 0));
+  const selectedDay = selectedDate ? recommendationDayByDate.get(selectedDate) ?? null : null;
   const selectedMealEntry = selectedDay?.meals.find((meal) => meal.meal_type === selectedMeal);
   const selectedItems = selectedMealEntry?.items ?? [];
   const selectedStaple = selectedMealEntry?.staple ?? null;
@@ -218,9 +229,9 @@ export function ResidentMonthlyRecommendation({ resident, detail }: { resident: 
           </div>
           <div className="grid grid-cols-7 bg-muted/40">{WEEKDAYS.map((day) => <div key={day} className="py-1.5 text-center text-[11px] font-bold text-muted-foreground">{day}</div>)}</div>
           <div className="grid grid-cols-7">
-            {days.map((day, index) => {
+            {calendarDays.map((day, index) => {
               const key = day ? dateKey(month, day) : null;
-              const apiDay = key ? monthly?.days?.find((item) => item.service_date === key) : null;
+              const apiDay = key ? recommendationDayByDate.get(key) : null;
               const mealCount = apiDay?.meals.filter((meal) => meal.items.length > 0).length ?? 0;
               const reviewStatus = apiDay?.review_status ?? "pending";
               return <button key={`${day ?? "empty"}-${index}`} type="button" disabled={!day} onClick={() => { if (key) { setSelectedDate(key); setSelectedMeal("breakfast"); } }} className={`min-h-16 border-b border-r p-1.5 text-left text-xs ${day ? "hover:bg-muted/50" : "bg-muted/20"} ${selectedDate === key ? "bg-primary/10 ring-2 ring-inset ring-primary" : ""}`}>{day && <><span className="font-bold">{day}</span>{mealCount > 0 && <p className="mt-1 truncate text-[10px] text-emerald-700">{mealCount}식 추천</p>}{mealCount > 0 && <p className={`mt-0.5 truncate text-[10px] font-semibold ${reviewStatus === "confirmed" ? "text-blue-700" : reviewStatus === "rejected" ? "text-amber-700" : "text-muted-foreground"}`}>{reviewStatus === "confirmed" ? "검수 완료" : reviewStatus === "rejected" ? "수정 필요" : "검수 대기"}</p>}</>}</button>;
